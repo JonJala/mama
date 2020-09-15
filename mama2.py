@@ -9,6 +9,8 @@ import logging
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
+import numpy as np
+
 
 # Constants / parameters #############
 
@@ -169,28 +171,50 @@ def harmonize_gwas_with_ldscores(sumstats, ldscores):
     """
 
 
-def create_omega_matrix(sumstat_se2s, ldscores, ld_reg_coefs):
+def create_omega_matrix(ldscores: np.ndarray, reg_ldscore_coefs: np.ndarray) -> np.ndarray:
     """
-    Creates the omega matrix for each SNP
+    Creates the omega matrix for each SNP.  Assumes the PxP submatrices in the ldscores and the
+    PxP matrix of LD regression coefficients have the same ordering of corresponding ancestries.
 
-    :param sumstat_se2s: TODO(jonbjala)
-    :param ldscores: TODO(jonbjala)
-    :param ld_reg_coefs: TODO(jonbjala)
+    :param ldscores: (Mx)PxP symmetric matrices containing LD scores (PxP per SNP)
+    :param reg_ldscore_coefs: PxP symmetric matrix containing LD score regression coefficients
 
-    :return: TODO(jonbjala)
+    :return: The Omega matrices as indicated in the MAMA paper (PxP per SNP) = (Mx)PxP
     """
 
+    # Multiply PxP slices of LD scores with the regression coefficients component-wise
+    return reg_ldscore_coefs * ldscores
 
-def create_sigma_matrix(sumstat_se2s, ldscores, ld_reg_coefs):
+
+def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
     """
-    Creates the sigma matrix for each SNP
+    Creates the sigma matrix for each SNP.  Assumes the PxP submatrices in the ldscores and the
+    PxP matrix of LD regression coefficients have the same ordering of corresponding ancestries.
 
-    :param sumstat_se2s: TODO(jonbjala)
-    :param ldscores: TODO(jonbjala)
-    :param ld_reg_coefs: TODO(jonbjala)
+    :param sumstat_se: Standard errors for the SNPs for each population (M x P matrix)
+    :param reg_se2_coefs: PxP symmetric matrix containing SE^2 regression coefficients
+    :param reg_const_coefs: PxP symmetric matrix containing Constant term regression coefficients
 
-    :return: TODO(jonbjala)
+    :return: The Sigma matrices as indicated in the MAMA paper (PxP per SNP) = (Mx)PxP
     """
+
+    # Get values for M and P (used to keep track of slices / indices / broadcasting)
+    M = sumstat_ses.shape[0]
+    P = sumstat_ses.shape[1]
+
+    # Create an MxPxP matrix with each PxP slice initially equal to reg_const_coefs
+    result_matrix = np.full(shape=(M, P, P), fill_value=reg_const_coefs)
+
+    # Create an M X P matrix, whose rows of length P will need to be added to the diagonals
+    # of the PxP slices in the final result
+    se_diags_as_matrix = sumstat_ses * sumstat_ses * np.diag(reg_se2_coefs)
+
+    # Broadcast-add the rows of the SE term matrix to the diagonals of slices of the result matrix
+    d_indices = np.arange(P)
+    result_matrix[:, d_indices, d_indices] += se_diags_as_matrix
+
+    return result_matrix
+
 
 
 def run_mama_method(harm_sumstats, omega, sigma):
