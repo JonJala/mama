@@ -5,6 +5,8 @@ Python tool for multi-ancestry, multi-trait analysis
 """
 
 import argparse as argp
+import functools
+import gc
 import logging
 import sys
 from typing import Any, Callable, Dict, List, Tuple
@@ -171,6 +173,103 @@ def harmonize_gwas_with_ldscores(sumstats, ldscores):
     """
 
 
+def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,
+    fixed_coefs: np.ndarray = None) -> np.ndarray:
+    """
+    Regress dependent variable on the N_var independent variables indicated in indep_vars.
+
+    If fixed_coefs is specified, it must be of length N_var, with NaNs indicating unconstrained
+    variables and other numbers indicating the value to which to fix the corresponding coefficient.
+
+    :param dep_var: 1-D (length = N_pts) ndarray for the dependent variable
+    :param indep_vars: N_pts x N_var ndarray describing the independent variables
+    :param fixed_coefs: 1-D (length = N_vars) ndarray describing fixed coefficients.
+                        If None, all variables are unconstrained.
+
+    :return: 1-D (length = N_vars) ndarray containing the regression coefficient values
+             in the same order as listed in indep_vars
+    """
+
+    # Determine number of independent variables (including constrained / fixed coefficient ones)
+    N_var = indep_vars.shape[1]
+
+    # Create empty solution vector
+    result = np.zeros(N_var)
+
+    # Process any fixed-coefficient variables
+    if fixed_coefs is not None:  # Check explicitly against None since ndarray is not True or False
+        # Make copy of dep_var since this will be modified
+        dep_var_vect = np.copy(dep_var)
+
+        # Get the indices of the fixed coefficients
+        unconstrained_var_indices = np.isnan(fixed_coefs)
+        constrained_var_indices = np.logical_not(unconstrained_var_indices)
+
+        # Adjust the dependent variable accordingly
+        dep_var_vect -= np.sum(indep_vars[:, constrained_var_indices] *
+                               fixed_coefs[constrained_var_indices], axis=1)
+
+        # Set the corresponding elements in the solution vector
+        result[constrained_var_indices] = fixed_coefs[constrained_var_indices]
+    else:
+        # All variables are unconstrained and dependent variable is read-only
+        dep_var_vect = dep_var
+        unconstrained_var_indices = np.full(N_var, True)
+
+    # Run the regression on the (remaining) unconstrained variables
+    # It returns a tuple, but we only care about the first element
+    result[unconstrained_var_indices] = np.linalg.lstsq(
+        indep_vars[:, unconstrained_var_indices], dep_var_vect, rcond=None)[0]
+
+    return result
+
+
+def run_ldscore_regressions(harm_betas, harm_ses,
+                            ldscores) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Runs the LD score and beta SE regression.  Assumes the PxP submatrices in the ldscores and the
+    P columns of harmonized summary stat data have the same ordering of corresponding ancestries.
+
+    :param harm_betas: MxP matrix (M SNPs by P populations) of betas / effect sizes
+    :param harm_ses: MxP matrix (M SNPs by P populations) of beta standard errors
+    :param ldscores: (Mx)PxP symmetric matrices containing LD scores (PxP per SNP)
+
+    :return: A tuple holding regression coefficient matrices (ldscore, se^2, and constant),
+             all MxPxP (PxP slices for each of M SNPs)
+    """
+    # M = harm_betas.shape[0]
+    # P = harm_betas.shape[1]
+
+    # ld_score_coefs = np.zeros((3, P, P))
+    # const_coefs = np.zeros((3, P, P))
+    # se2_coefs = np.zeros((3, P, P))
+
+
+    # for i in range(P):
+    #     for j in range(i,P):
+
+    #         indep_vars = {}
+
+    #         ld_score_coefs[i,i], const_coefs[i,i], se2_coefs[i,i] = run_regression(
+    #             harm_betas[:,i], harm_betas[:,i]
+    #         )
+    #         ld_score_coefs[i,j], const_coefs[i,j], se2_coefs[i,j] = run_regression(
+    #         )
+    #         ld_score_coefs[j,i] = ld_score_coefs[i,j]
+    #         const_coefs[j,i] = const_coefs[i,j]
+    #         se2_coefs[j,i] = se2_coefs[i,j]
+
+    # # Stack and rearrange ldscores, constant values, and squared SEs
+    # # (into PxMx3 matrix with column order = ldscore, const, se^2)
+    # # stacked_reg_vals = np.concatenate((ldscores[np.newaxis, :, :], np.ones((1, M, P)),
+    # #    np.square(harm_ses)[np.newaxis, :, :]), axis=0)
+    # #stacked_reg_vals = np.transpose(stacked_reg_vals, axes=(2,1,0))
+
+    # print("\nJJ:\n", stacked_reg_vals)
+
+    # return ld_score_coefs, const_coefs, se2_coefs
+
+
 def create_omega_matrix(ldscores: np.ndarray, reg_ldscore_coefs: np.ndarray) -> np.ndarray:
     """
     Creates the omega matrix for each SNP.  Assumes the PxP submatrices in the ldscores and the
@@ -217,7 +316,7 @@ def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
 
 
 
-def run_mama_method(harm_sumstats, omega, sigma):
+def run_mama_method(harm_betas, omega, sigma):
     """
     Runs the core MAMA method to combine results and generate final, combined summary statistics
 
@@ -227,6 +326,77 @@ def run_mama_method(harm_sumstats, omega, sigma):
 
     :return: TODO(jonbjala)
     """
+
+    # TODO(jonbjala) Remove printouts, add positive (semi-)def checks and needed processing, dropping some SNPs
+
+    # Get values for M and P (used to keep track of slices / indices / broadcasting)
+    M = omega.shape[0]
+    P = omega.shape[1]
+    print("\nJJ: omega\n", omega)
+    print("JJ: \n", omega.shape)
+    # Create a 3D matrix, M rows of Px1 column vectors with shape (M, P, 1)
+    d_indices = np.arange(P)
+    omega_diag = omega[:, d_indices, d_indices][:, :, np.newaxis]
+    print("\nJJ: omega_diag\n", omega_diag)
+    print("JJ:\n", omega_diag.shape)
+    omega_pp_scaled = np.divide(omega, omega_diag)  # Slice rows are Omega'_pjj / omega_pp,j
+    print("\nJJ: omega_pp_scaled\n", omega_pp_scaled)
+    print("JJ: \n", omega_pp_scaled.shape)
+
+    # Produce center matrix in steps (product of omega terms, add omega and sigma, then invert)
+    center_matrix_inv = -omega_pp_scaled[:, :, :, np.newaxis] * omega[:, :, np.newaxis, :]
+    print("\nJJ: omega_outer_prod\n", center_matrix_inv)
+    print("JJ: \n", center_matrix_inv.shape)
+    center_matrix_inv += omega[:,np.newaxis,:,:] + sigma[:,np.newaxis,:,:] # Broadcast add
+    print("\nJJ: omega_outer_prod+omega+sigma\n", center_matrix_inv)
+    print("JJ: \n", center_matrix_inv.shape)
+    center_matrix = np.linalg.inv(center_matrix_inv) # Inverts each slice separately
+    del center_matrix_inv; gc.collect() # Clean up the inverse matrix to free space
+    print("\nJJ: center_matrix\n", center_matrix)
+    print("JJ: \n", center_matrix.shape)
+
+    # Calculate (Omega'_p,j/omega_pp,j) * center_matrix
+    left_product = np.matmul(omega_pp_scaled[:, :, np.newaxis, :], center_matrix)
+    del center_matrix; gc.collect() # Clean up the center matrix to free space
+    print("\nJJ: left_product\n", left_product)
+    print("JJ: \n", left_product.shape)
+
+    # Calculate denominator (M x P x 1 x 1)
+    denom = np.matmul(left_product,
+                      np.transpose(omega_pp_scaled[:, :, np.newaxis, :], (0, 1, 3, 2)))
+    # print("\nJJ: denom prod\n", denom)
+    # print("JJ:\n", denom.shape)
+    denom_recip = np.reciprocal(denom)
+    # print("\nJJ: denom \n", denom)
+    # print("JJ:\n", denom.shape)
+    denom_recip_view = denom_recip.view()
+    denom_recip_view.shape = (M, P)
+    print("\nJJ: denom_recip_view \n", denom_recip_view)
+    print("JJ:\n", denom_recip_view.shape)
+
+    # Calculate numerator (M x P x 1 x 1))
+    left_product_view = left_product.view()
+    left_product_view.shape = (M, P, P)
+    print("\nJJ: left_product_view\n", left_product_view)
+    print("JJ: \n", left_product_view.shape)
+    harm_betas_t = harm_betas[:,:,np.newaxis]
+    print("\nJJ: harm_betas \n", harm_betas)
+    print("JJ:\n", harm_betas.shape)
+    numer = np.matmul(left_product_view, harm_betas[:,:,np.newaxis])
+    print("\nJJ: numer\n", numer)
+    print("JJ:\n", numer.shape)
+    numer_view = numer.view()
+    numer_view.shape = (M, P)
+    print("\nJJ: numer_view\n", numer_view)
+    print("JJ:\n", numer_view.shape)
+
+    new_betas = denom_recip_view * numer_view
+    new_beta_ses = np.sqrt(denom_recip_view)
+
+    print("\nJJ: new_betas\n", new_betas)
+    print("JJ:\n", new_betas.shape)
+    print("\nJJ: new_beta_ses\n", new_beta_ses)
+    print("JJ:\n", new_beta_ses.shape)
 
 
 def mama_pipeline(iargs):
