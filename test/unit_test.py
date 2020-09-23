@@ -6,6 +6,7 @@ import itertools
 import os
 
 import numpy as np
+import pandas as pd
 import pytest
 
 import mama2.mama2 as mama2
@@ -117,6 +118,16 @@ class TestRunRegression:
         assert np.allclose(result1, coefs, atol=0.02, rtol=0.05)
         assert len(result2) == N_vars
         assert np.allclose(result2, coefs, atol=0.02, rtol=0.05)
+
+
+###########################################
+
+class TestRunLDScoreRegressions:
+
+    #########
+    def test__preset_inputs__expected_results(self):
+        # TODO(jonbjala) Need some small testcases with precanned data (at least one > 2 pops)
+        assert True
 
 
 ###########################################
@@ -333,3 +344,271 @@ class TestRunMamaMethod:
     #     ldscores = np.array([[1,-1], [-2,2], [4,0], [1,1]])
     #     mama2.run_ldscore_regressions(betas, ses, ldscores)
     #     assert False
+
+
+###########################################
+
+# TODO(jonbjala) Create fixture to generate dataframes filled with arange (parameterized)
+
+class TestFilterSumstats:
+
+    __DATAFRAME_LENGTHS = [2, 3, 6, 10, 50]
+
+    __DATAFRAME_SHAPES = list(itertools.permutations(__DATAFRAME_LENGTHS, 2))
+
+    #########
+    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
+    def test__single_filt__return_expected_results(self, df_shape):
+
+        # Fill DF with numbers 0..N-1 where there are N cells
+        num_rows = df_shape[0]
+        num_cols = df_shape[1]
+        num_cells = num_rows * num_cols
+        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int = num_cells // 2
+        expected_indices = (df == target_int).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        assert expected_indices.sum() == 1
+        assert len(df) == num_rows
+
+        # Filter the dataframe
+        func_name = "Hello, world"
+        result_indices, filt_map = mama2.filter_sumstats(df,
+            {func_name : lambda df: (df == target_int).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 1
+        assert func_name in filt_map
+
+        #   Confirm dataframe does not contain the target int and has one fewer row
+        assert len(df) == num_rows - 1
+        assert (df == target_int).any(axis=None) == False
+        assert all(result_indices == filt_map[func_name])
+        assert all(result_indices == expected_indices)
+
+
+
+
+    #########
+    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
+    def test__two_filt_no_overlap__return_expected_results(self, df_shape):
+
+        # Fill DF with numbers 0..N-1 where there are N cells
+        num_rows = df_shape[0]
+        num_cols = df_shape[1]
+        num_cells = num_rows * num_cols
+        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int1 = 0
+        target_int2 = num_cells - 1
+        expected_indices1 = (df == target_int1).any(axis='columns')
+        expected_indices2 = (df == target_int2).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        assert expected_indices1.sum() == 1
+        assert expected_indices2.sum() == 1
+        assert len(df) == num_rows
+
+        # Filter the dataframe
+        func_name1 = "Hello"
+        func_name2 = "World"
+        result_indices, filt_map = mama2.filter_sumstats(df,
+            {func_name1 : lambda df: (df == target_int1).any(axis='columns'),
+             func_name2 : lambda df: (df == target_int2).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 2
+        assert func_name1 in filt_map
+        assert func_name2 in filt_map
+
+        #   Confirm dataframe does not contain the target int and has one fewer row
+        assert len(df) == num_rows - 2
+        assert (df == target_int1).any(axis=None) == False
+        assert (df == target_int1).any(axis=None) == False
+        assert all(result_indices == filt_map[func_name1] | filt_map[func_name2])
+        assert result_indices.sum() == 2
+
+
+    #########
+    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
+    def test__one_filt_duplicated__same_as_just_once(self, df_shape):
+
+        # Fill DF with numbers 0..N-1 where there are N cells
+        num_rows = df_shape[0]
+        num_cols = df_shape[1]
+        num_cells = num_rows * num_cols
+        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int = num_cells // 2
+        expected_indices = (df == target_int).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        assert expected_indices.sum() == 1
+        assert len(df) == num_rows
+
+        # Filter the dataframe
+        func_name1 = "Hello, world"
+        func_name2 = "Goodbye, everyone"
+        result_indices, filt_map = mama2.filter_sumstats(df,
+            {func_name1 : lambda df: (df == target_int).any(axis='columns'),
+             func_name2 : lambda df: (df == target_int).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 2
+        assert func_name1 in filt_map
+        assert func_name2 in filt_map
+
+        #   Confirm dataframe does not contain the target int and has one fewer row
+        assert len(df) == num_rows - 1
+        assert (df == target_int).any(axis=None) == False
+        assert all(result_indices == filt_map[func_name1])
+        assert all(result_indices == filt_map[func_name2])
+        assert all(result_indices == expected_indices)
+
+
+    #########
+    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
+    def test__np_filt_or_useless_filt__no_change(self, df_shape):
+
+        # Fill DF with numbers 0..N-1 where there are N cells
+        num_rows = df_shape[0]
+        num_cols = df_shape[1]
+        num_cells = num_rows * num_cols
+        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+
+        # BEFORE: Confirm dataframe copy contains the correct number of rows
+        df_copy1 = df.copy()
+        assert len(df_copy1) == num_rows
+
+        # Filter the copy of the dataframe with no filter
+        result_indices, filt_map = mama2.filter_sumstats(df_copy1, {})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 0
+
+        #   Confirm dataframe is unchanged
+        assert len(df_copy1) == num_rows
+        assert df_copy1.equals(df)
+
+        ######
+
+        # BEFORE: Confirm dataframe copy contains the correct number of rows
+        df_copy2 = df.copy()
+        assert len(df_copy2) == num_rows
+
+        # Filter the copy of the dataframe with useless filter
+        func_name = "useless"
+        result_indices, filt_map = mama2.filter_sumstats(df_copy1,
+            {func_name : lambda df: (df == -1).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 1
+        assert func_name in filt_map
+
+        #   Confirm dataframe is unchanged
+        assert len(df_copy2) == num_rows
+        assert df_copy2.equals(df)
+        assert not any(filt_map[func_name])
+        assert not any(result_indices)
+
+
+    #########
+    def test__empty_dataframe__no_change(self):
+        # Fill DF with numbers 0..N-1 where there are N cells
+        df = pd.DataFrame()
+
+        # BEFORE: Confirm dataframe copy contains the correct number of rows
+        assert len(df) == 0
+
+        # Filter the dataframe with useless filter
+        func_name = "useless"
+        result_indices, filt_map = mama2.filter_sumstats(df,
+            {func_name : lambda df: (df == -1).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 1
+        assert func_name in filt_map
+
+        #   Confirm dataframe is unchanged
+        assert len(df) == 0
+        assert not any(filt_map[func_name])
+        assert not any(result_indices)
+
+
+###########################################
+
+
+@pytest.fixture(scope="function")
+def rename_test_df():
+
+    # Control parameters
+    upper_col_bound = 10  # Make sure this is at least 3, controls number of columns
+    num_rows = 5
+
+    # Derived parameters
+    cols = [0] + list(range(upper_col_bound))
+    num_cols = len(cols)
+    num_cells = num_rows * num_cols
+
+    # Create and return DataFrame
+    return pd.DataFrame(np.arange(num_cells).reshape(num_rows, num_cols), columns=cols)
+
+
+class TestRenameSumstatsCols:
+
+    # Mappings for various conditions
+    _EMPTY_MAP = {}  # Empty renaming
+    _ONE_COL_MAP = {1 : -1}  # Map one column to new value
+    _TWO_COL_MAP = {1 : -1, 2 : -2}  # Map two columns to new values
+    _SWAP_MAP = {1 : 2, 2 : 1}  # Map two columns to each other
+
+    _MISSING_KEY_MAP1 = {-1 : -2}  # One missing key
+    _MISSING_KEY_MAP2 = {-1 : -2, -10 : -11}  # Two missing keys
+    _MISSING_KEY_MAP3 = {1 : -1, -2 : -3}  # Mix missing and present keys
+
+    _COLLISION_UNCHANGED_MAP = {1 : 0}  # Map to same as an unmapped column
+    _COLLISION_RENAMED_MAP = {1 : -1, 2 : -1}  # Map two columns to same value
+
+
+    #########
+    @pytest.mark.parametrize("col_map", [_EMPTY_MAP, _ONE_COL_MAP, _TWO_COL_MAP, _SWAP_MAP])
+    def test__happy_path__rename_columns__expected_results(self, col_map, rename_test_df):
+
+        # Calculate expected results
+        exp_cols = [col_map.get(col, col) for col in rename_test_df.columns.to_list()]
+
+        # Rename the columns of the dataframe
+        mama2.rename_sumstats_cols(rename_test_df, col_map)
+
+        # Check the columns of the transformed dataframe
+        assert all(c_act == c_exp for (c_act, c_exp) in
+            zip(rename_test_df.columns.to_list(), exp_cols))
+
+
+    #########
+    @pytest.mark.parametrize("col_map", [_MISSING_KEY_MAP1, _MISSING_KEY_MAP2, _MISSING_KEY_MAP3])
+    def test__missing_columns__throws_error(self, col_map, rename_test_df):
+
+        # Rename the columns of the dataframe
+        with pytest.raises(RuntimeError):
+            mama2.rename_sumstats_cols(rename_test_df, col_map)
+
+
+    #########
+    @pytest.mark.parametrize("col_map", [_COLLISION_UNCHANGED_MAP, _COLLISION_RENAMED_MAP])
+    def test__rename_collisions__throws_error(self, col_map, rename_test_df):
+
+        # Rename the columns of the dataframe
+        with pytest.raises(RuntimeError):
+            mama2.rename_sumstats_cols(rename_test_df, col_map)

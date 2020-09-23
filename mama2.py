@@ -5,6 +5,7 @@ Python tool for multi-ancestry, multi-trait analysis
 """
 
 import argparse as argp
+import collections
 import functools
 import gc
 import logging
@@ -12,6 +13,7 @@ import sys
 from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
+import pandas as pd
 
 
 # Constants / parameters #############
@@ -23,6 +25,51 @@ __version__ = '1.0.0'
 SOFTWARE_CORRESPONDENCE_EMAIL1 = "grantgoldman0@gmail.com"
 SOFTWARE_CORRESPONDENCE_EMAIL2 = "jjala.ssgac@gmail.com"
 OTHER_CORRESPONDENCE_EMAIL = "paturley@broadinstitute.org"
+
+# Standard filter function description format string
+DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs that %s"
+
+
+# Standard column names
+SNP_COL = 'SNP'
+BP_COL = 'BP'
+CHR_COL = 'CHR'
+BETA_COL = 'BETA'
+FREQ_COL = 'FREQ'
+SE_COL = 'SE'
+A1_COL = 'A1'
+A2_COL = 'A2'
+
+
+# Standard filter functions used for SNPs for MAMA
+MAMA_STD_FILTER_FUNCS = {
+    'NO NAN' :
+        {
+        'func' : lambda df: df.isnull().any(axis=1),
+        'description' : DEFAULT_FILTER_FUNC_DESC % "have any NaN values"
+        },
+    'FREQ BOUNDS' :
+        {
+        'func' : lambda df: ~sumstats_df[FREQ_COL].between(0.0, 1.0),
+        'description' : DEFAULT_FILTER_FUNC_DESC % "have FREQ values outside of [0.0, 1.0]"
+        },
+    'SE BOUNDS' :
+        {
+        'func' : lambda df: sumstats_df[SE_COL].lt(0.0),
+        'description' : DEFAULT_FILTER_FUNC_DESC % "have negative SE values"
+        },
+    'SNP PREFIX' :
+        {
+        'func' : lambda df: ~sumstats_df.str[SNP_COL].startswith('rs'),
+        'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
+        },
+    'CHR BOUNDS' :
+        {
+        'func' : lambda df: ~sumstats_df[CHR_COL].between(1, 22),
+        'description' : DEFAULT_FILTER_FUNC_DESC % "with listed chromosomes not in the range 1-22"
+        }
+    }
+
 
 ####################################################################################################
 
@@ -43,6 +90,10 @@ HEADER = """
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
 """ % (__version__, SOFTWARE_CORRESPONDENCE_EMAIL1, SOFTWARE_CORRESPONDENCE_EMAIL2,
        OTHER_CORRESPONDENCE_EMAIL)
+
+# Filter function dictionary (name to function mapping) for MAMA
+MAMA_STD_FILTERS = {fname : finfo['func'] for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
+
 
 ####################################################################################################
 
@@ -172,9 +223,124 @@ def harmonize_gwas_with_ldscores(sumstats, ldscores):
     :return: TODO(jonbjala)
     """
 
+SumstatFilter = Callable[[pd.DataFrame], pd.Series]
+def filter_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Tuple[
+    pd.Series, Dict[str, pd.Series]]:
+    """
+    Runs a list of filters on the input dataframe, tallying how many SNPs should be dropped for
+    each filter, and how many SNPs total (in the union of drops, so it's not necessarily equal to
+    the sum of drops for all filters).  Then modifies the dataframe IN PLACE to drop these snps.
+
+    :param sumstats_df: Dataframe holding
+
+    :return: Tuple containing:
+             1) The indices of the union of SNPs being dropped, and
+             2) A dictionary mapping filter name (same as the key in "filters" input parameter)
+                to an ordered collection (pd.Series) of booleans indicating which SNPs to drop
+                for that filter
+    """
+
+    # Run each filter on the dataframe and record the resulting index arrays
+    result_dict = {filter_name : filt(sumstats_df) for filter_name, filt in filters.items()}
+
+    # Figure out the indices of the union of SNPs that should be dropped
+    cumulative_drop_indices = functools.reduce(lambda s1, s2: s1 | s2, result_dict.values(),
+        pd.Series(data=np.full(len(sumstats_df), False), index=sumstats_df.index))
+
+    # Drop the rows
+    sumstats_df.drop(sumstats_df.index[cumulative_drop_indices], inplace=True)
+
+    return cumulative_drop_indices, result_dict
+
+
+
+def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
+    """
+    Standardizes column names in the input dataframe.  Modifications are done IN PLACE to
+    the dataframe (i.e. it is altered)!
+
+    :param sumstats_df: Dataframe holding
+    :param column_map: Dictionary of column in the sumstats_df mapped to standard column name
+
+    :raises RuntimeError: If a column included in the renaming map is missing from the DataFrame
+    :raises RuntimeError: If any renamed column will have the same name as another after mapping
+
+    """
+
+    # Get current column list (before mapping)
+    df_col_list_before = sumstats_df.columns.to_list()
+
+    # Check to make sure no column in the mapping is missing
+    missing_cols = {col for col in column_map.keys() if col not in df_col_list_before}
+    if missing_cols:
+        raise RuntimeError("Columns %s to be mapped are not present in DataFrame columns %s" %
+            (missing_cols, df_col_list_before))
+
+    # Get column list after mapping
+    df_col_list_after = [column_map.get(col, col) for col in df_col_list_before]
+
+    # Check to make sure no column mapping collides with any other "after mapping" column
+    col_count = collections.Counter(df_col_list_after)
+    colliding_cols = {old_col for old_col, new_col in column_map.items() if col_count[new_col] > 1}
+    if colliding_cols:
+        collisions = {column_map[col] for col in colliding_cols}
+        raise RuntimeError("Columns %s map to columns (%s) that will create duplicates in the "
+                           " final result: %s" % (colliding_cols, collisions, df_col_list_after))
+
+    # Perform the renaming
+    sumstats_df.rename(columns=column_map, inplace=True)
+
+
+def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
+                column_map: Dict[str, str] = {}) -> Tuple[
+                                                    pd.DataFrame, pd.Series, Dict[str, pd.Series]]:
+    """
+    Runs QC steps like renaming columns and dropping rows based on filters
+
+    :param sumstats_df: Dataframe holding
+    :param column_map: Dictionary of column in the sumstats_df mapped to standard column name
+
+    :return: Tuple containing:
+             1) A modified copy of the input data frame (SNPs dropped, columns renamed, etc.)
+             2) The indices of the union of SNPs being dropped, and
+             3) A dictionary mapping filter name to an ordered collection (pd.Series) of
+                booleans indicating which SNPs to drop for that filter
+    """
+
+    # Make copy of the dataframe (this copy will be modified)
+    df = sumstats_df.copy()
+
+    # Rename columns to standardized names
+    standardize_sumstats_cols(df, column_map)
+
+    # Set SNP ID to be index and make sure SNP IDs are lower case ("rs..." rather than "RS...")
+    df.set_index(SNP_COL)
+    df.index = sumstats_df.index.str.lower()
+
+    # Get indices of rows that should be dropped
+    cumulative_drop_indices, drop_snps = filter_sumstats(sumstats_df, filters)
+
+    return df, cumulative_drop_indices, drop_snps
+
+
+def read_and_qc_sumstats():
+    pass
+    # MAMA_STD_FILTERS
+    # # Drop SNPS / Log results
+    # cumulative_drop_indices = pd.Series(data=np.full(len(sumstats_df), False))
+    # logging.info("Filter results for summary statistics [%s]:", df_name)
+    # for filt_name, drop_indices in drop_snps.items():
+    #     logging.info("\tFilter %s: dropped %d SNPs (%s)", filt_name, drop_indices.sum(),
+    #         MAMA_STD_FILTER_FUNCS[filt_name]['description'])
+    #     logging.debug("\tSNPs dropped = %s\n", sumstats_df.index[drop_indices].to_list())
+    #     cumulative_drop_indices |= drop_indices
+    # logging.info("\n")
+    # sumstats_df.drop(cumulative_drop_indices, inplace=True)
+
+
 
 def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,
-    fixed_coefs: np.ndarray = None) -> np.ndarray:
+                   fixed_coefs: np.ndarray = None) -> np.ndarray:
     """
     Regress dependent variable on the N_var independent variables indicated in indep_vars.
 
@@ -234,40 +400,48 @@ def run_ldscore_regressions(harm_betas, harm_ses,
     :param harm_ses: MxP matrix (M SNPs by P populations) of beta standard errors
     :param ldscores: (Mx)PxP symmetric matrices containing LD scores (PxP per SNP)
 
-    :return: A tuple holding regression coefficient matrices (ldscore, se^2, and constant),
-             all MxPxP (PxP slices for each of M SNPs)
+    :return: A tuple holding regression coefficient matrices (ldscore, constant, and se^2),
+             each one a PxP ndarray
     """
-    # M = harm_betas.shape[0]
-    # P = harm_betas.shape[1]
 
-    # ld_score_coefs = np.zeros((3, P, P))
-    # const_coefs = np.zeros((3, P, P))
-    # se2_coefs = np.zeros((3, P, P))
+    # Useful constants
+    LD_SCORE_COEF = 0
+    CONST_COEF = 1
+    SE_PROD_COEF = 2
+    N_VARS = 3  # There are 3 coefficient matrices being determined, see lines immediately above
+
+    # Determine some ndarray / matrix dimension lengths
+    M = harm_betas.shape[0]
+    P = harm_betas.shape[1]
+
+    # Allocate space for the regression matrix, order will be ld scores, constant, and se product
+    # (will be partially overwritten at each iteration but no need to reallocate each time)
+    reg_matrix = np.zeros((M, N_VARS))
+    reg_matrix[:, CONST_COEF] = np.ones(M)
+
+    # Allocate coefs matrix (3 x P x P, slices are LD score, constant, se^2 in that order)
+    result_coefs = np.zeros((N_VARS, P, P))
+
+    # Allocate fixed_coefs vector (length 3, order will be ld scores, constant, and se product)
+    fixed_coefs = np.full(N_VARS, np.NaN)
+
+    # Calculate each element (and therefore its symmetric opposite, as well)
+    for p1 in range(P):
+        for p2 in range(p1, P):
+            # Set the needed columns in the regression matrix
+            reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p1, p2] # LD Score column
+            reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p1], harm_ses[:, p2]) # SE product
+
+            # TODO(jonbjala) Need various options to control what to fix things to
+            fixed_coefs[SE_PROD_COEF] = np.NaN if p1 == p2 else 0.0 # Only use for diagonals
+
+            # Run the regression and set opposing matrix entry to make coef matrix symmetric
+            result_coefs[:, p1, p2] = run_regression(
+                np.multiply(harm_betas[:, p1], harm_betas[:, p2]), reg_matrix, fixed_coefs)
+            result_coefs[:, p2, p1] = result_coefs[:, p1, p2]
 
 
-    # for i in range(P):
-    #     for j in range(i,P):
-
-    #         indep_vars = {}
-
-    #         ld_score_coefs[i,i], const_coefs[i,i], se2_coefs[i,i] = run_regression(
-    #             harm_betas[:,i], harm_betas[:,i]
-    #         )
-    #         ld_score_coefs[i,j], const_coefs[i,j], se2_coefs[i,j] = run_regression(
-    #         )
-    #         ld_score_coefs[j,i] = ld_score_coefs[i,j]
-    #         const_coefs[j,i] = const_coefs[i,j]
-    #         se2_coefs[j,i] = se2_coefs[i,j]
-
-    # # Stack and rearrange ldscores, constant values, and squared SEs
-    # # (into PxMx3 matrix with column order = ldscore, const, se^2)
-    # # stacked_reg_vals = np.concatenate((ldscores[np.newaxis, :, :], np.ones((1, M, P)),
-    # #    np.square(harm_ses)[np.newaxis, :, :]), axis=0)
-    # #stacked_reg_vals = np.transpose(stacked_reg_vals, axes=(2,1,0))
-
-    # print("\nJJ:\n", stacked_reg_vals)
-
-    # return ld_score_coefs, const_coefs, se2_coefs
+    return result_coefs[LD_SCORE_COEF], result_coefs[CONST_COEF], result_coefs[SE_PROD_COEF]
 
 
 def create_omega_matrix(ldscores: np.ndarray, reg_ldscore_coefs: np.ndarray) -> np.ndarray:
@@ -315,7 +489,6 @@ def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
     return result_matrix
 
 
-
 def run_mama_method(harm_betas, omega, sigma):
     """
     Runs the core MAMA method to combine results and generate final, combined summary statistics
@@ -347,7 +520,7 @@ def run_mama_method(harm_betas, omega, sigma):
     center_matrix_inv = -omega_pp_scaled[:, :, :, np.newaxis] * omega[:, :, np.newaxis, :]
     print("\nJJ: omega_outer_prod\n", center_matrix_inv)
     print("JJ: \n", center_matrix_inv.shape)
-    center_matrix_inv += omega[:,np.newaxis,:,:] + sigma[:,np.newaxis,:,:] # Broadcast add
+    center_matrix_inv += omega[:, np.newaxis, :, :] + sigma[:, np.newaxis, :, :] # Broadcast add
     print("\nJJ: omega_outer_prod+omega+sigma\n", center_matrix_inv)
     print("JJ: \n", center_matrix_inv.shape)
     center_matrix = np.linalg.inv(center_matrix_inv) # Inverts each slice separately
