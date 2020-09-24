@@ -9,6 +9,7 @@ import collections
 import functools
 import gc
 import logging
+import re
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
@@ -27,8 +28,7 @@ SOFTWARE_CORRESPONDENCE_EMAIL2 = "jjala.ssgac@gmail.com"
 OTHER_CORRESPONDENCE_EMAIL = "paturley@broadinstitute.org"
 
 # Standard filter function description format string
-DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs that %s"
-
+DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
 
 # Standard column names
 SNP_COL = 'SNP'
@@ -40,23 +40,26 @@ SE_COL = 'SE'
 A1_COL = 'A1'
 A2_COL = 'A2'
 
+# Map of default regular expressions used to convert summary stat column names to standardized names
+MAMA_RE_EXPR_MAP = "" # TODO(jonbjala)
+
 
 # Standard filter functions used for SNPs for MAMA
 MAMA_STD_FILTER_FUNCS = {
     'NO NAN' :
         {
         'func' : lambda df: df.isnull().any(axis=1),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "have any NaN values"
+        'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
         },
     'FREQ BOUNDS' :
         {
         'func' : lambda df: ~sumstats_df[FREQ_COL].between(0.0, 1.0),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "have FREQ values outside of [0.0, 1.0]"
+        'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [0.0, 1.0]"
         },
     'SE BOUNDS' :
         {
         'func' : lambda df: sumstats_df[SE_COL].lt(0.0),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "have negative SE values"
+        'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
         },
     'SNP PREFIX' :
         {
@@ -292,8 +295,7 @@ def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
 
 
 def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
-                column_map: Dict[str, str] = {}) -> Tuple[
-                                                    pd.DataFrame, pd.Series, Dict[str, pd.Series]]:
+                column_map: Dict[str, str]) -> Tuple[pd.DataFrame, pd.Series, Dict[str, pd.Series]]:
     """
     Runs QC steps like renaming columns and dropping rows based on filters
 
@@ -323,9 +325,111 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
     return df, cumulative_drop_indices, drop_snps
 
 
-def read_and_qc_sumstats():
-    pass
-    # MAMA_STD_FILTERS
+# TODO(jonbjala) Add support for (or maybe require?) compiled RE objects as values of re_expr_map?
+def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, str],
+                             req_cols: List[str] = []) -> Dict[str, str]:
+    """
+    Given a list of column names (orig_col_list) and a map of standard names to regular expressions,
+    determine a mapping between elements of orig_col_list and the standard names.  The optional
+    parameter req_cols checks for required standard columns that must be found / present.
+
+    The result mapping must be one-to-one (no collisions in domain or co-domain).  Case is ignored
+    when searching for matches.
+
+    Note: Regular expressions must match the full column (see fullmatch() in re module docs)
+
+    :param orig_col_list: List of column names that need to be standardized
+    :param re_expr_map: Map of standard names to regular expressions used for matching
+    :param req_cols: If specified, used to check to make sure certain standard columns are "found"
+
+    :raises RuntimeError: If the resulting mapping would not be one-to-one (collision found)
+    :raises RuntimeError: If one or more elements in req_cols are not in the result mapping values
+
+    :return: Dictionary mapping column names in a summary stat file to standard names
+    """
+
+    # TODO(jonbjala) This code might be a little dense and not as clear as is desirable?
+
+    # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
+
+    # Map input columns to set of possible standardized column matches
+    initial_mapping = {orig_col : set(filter(lambda m: m if re.fullmatch(re_expr_map[m], orig_col,
+                       flags=re.IGNORECASE) else None, re_expr_map.keys()))
+                       for orig_col in orig_col_list}
+
+    # Check to make sure some columns don't map to more than one standard column
+    # Note: Need to use list for multiple_matches instead of a set since a set must hold
+    #       hashable / immutable objects
+    multiple_matches = [(orig_col, std_col_set) for orig_col, std_col_set
+                        in initial_mapping.items() if len(std_col_set) > 1]
+    if multiple_matches:
+        raise RuntimeError("The following ambiguous column matches were found: %s" %
+                           multiple_matches)
+
+    # Construct candidate result mapping (dispense with sets in the values)
+    result_map = {orig_col : std_cols.pop() for orig_col, std_cols in initial_mapping.items()
+                  if std_cols}
+
+    # Check to make sure multiple columns don't match to the same standard column
+    # Note: See note a few lines up w.r.t multiple_matches for list vs set discussion
+    reverse_map = {std_col : set(filter(lambda m:
+        result_map[m] == std_col, result_map.keys())) for std_col in result_map.values()}
+    multiple_reverse_matches = [(std_col, orig_col_set) for std_col, orig_col_set
+                                in reverse_map.items() if len(orig_col_set) > 1]
+    if multiple_reverse_matches:
+        raise RuntimeError("The following ambiguous column reverse matches were found: %s" %
+                           multiple_reverse_matches)
+
+    # Lastly, if req_cols is specified, check to make sure all are present
+    if req_cols:
+        missing_std_cols = {std_col for std_col in req_cols if std_col not in result_map.values()}
+        if missing_std_cols:
+            raise RuntimeError("No matches for the following columns were found: %s" %
+                               missing_std_cols)
+
+    return result_map
+
+
+# TODO(jonbjala) Need to allow for column search info / re to be passed in
+def read_and_qc_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = None,
+                         re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
+                         filters  ):
+    """
+    Read the specified summary statistics file into a Pandas DataFrame, and run QC steps on it,
+    the most important and notable being standardizing column names and running filters to drop
+    SNPs (e.g. where MAF < 0)
+
+    :param dep_var: 1-D (length = N_pts) ndarray for the dependent variable
+    :param indep_vars: N_pts x N_var ndarray describing the independent variables
+    :param fixed_coefs: 1-D (length = N_vars) ndarray describing fixed coefficients.
+                        If None, all variables are unconstrained.
+
+    :return: 1-D (length = N_vars) ndarray containing the regression coefficient values
+             in the same order as listed in indep_vars
+    """
+    # Read the summary stat file into a DataFrame
+    initial_df = pd.read_csv(full_gwasfile_path, sep=None, engine='python', comment='#')
+
+    # If no column mapping was passed in, need to determine that
+    if column_map is None:
+        column_map = determine_column_mapping(initial_df.columns.to_list(), re_expr_map)
+
+    # Run QC on the df
+    qc_df, drop_indices, drop_map = qc_sumstats(initial_df, MAMA_STD_FILTERS, column_map)
+
+    # Log SNP drop info
+    # TODO(jonbjala)
+
+    return qc_df
+
+# # Standard filter functions used for SNPs for MAMA
+# MAMA_STD_FILTER_FUNCS = {
+#     'NO NAN' :
+#         {
+#         'func' : lambda df: df.isnull().any(axis=1),
+#         'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
+#         },
+# MAMA_STD_FILTERS = {fname : finfo['func'] for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
     # # Drop SNPS / Log results
     # cumulative_drop_indices = pd.Series(data=np.full(len(sumstats_df), False))
     # logging.info("Filter results for summary statistics [%s]:", df_name)

@@ -612,3 +612,62 @@ class TestRenameSumstatsCols:
         # Rename the columns of the dataframe
         with pytest.raises(RuntimeError):
             mama2.rename_sumstats_cols(rename_test_df, col_map)
+
+###########################################
+
+class TestDetermineColumnMapping:
+
+    _ORIG_COLS = ['Alice', 'Bob', 'Carla', 'Duke', 'Eve', 'Fred', 'Ginger']
+
+    _RE_MAP_HAPPY_1 = {'Red' : r'al.+|XXX', 'Blue' : r'.o.', 'Green' : r'Hello|World|gINger'}
+    _RE_MAP_HAPPY_2 = {'Red' : r'ABC.[0-9]+|Al.*|XXX\d', 'Blue' : r'.*b', 'Green' : r'Du.*'}
+
+    _RE_MAP_1_TO_2 = {'Red' : r'Eve|Ginger', 'Blue' : r'.*la', 'Green' : r'Alice'}
+    _RE_MAP_2_TO_1 = {'Red' : r'Car.*', 'Blue' : r'.*la', 'Green' : r'Alice'}
+
+    _RE_MAP_MISSING = {'Red' : r'Al.*', 'Blue' : r'Bob', 'Green' : r'YYY'}
+
+    #########
+    @pytest.mark.parametrize("re_map", [_RE_MAP_HAPPY_1, _RE_MAP_HAPPY_2])
+    def test__happy_path__expected_results(self, re_map):
+        req_cols = list(re_map.keys())
+        num_map_cols = len(req_cols)
+
+        # All columns should match, so specifying varying required cols should all work
+        for i in range(num_map_cols + 1):
+            res = mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS, re_map,
+                                                 req_cols[:i])
+            print("JJ: ", res)
+            assert len(res) == num_map_cols
+            res_vals = set(res.values())
+            assert len(res.values()) == num_map_cols
+
+
+    #########
+    def test__map_one_col_to_two_std_cols__throw_error(self):
+        with pytest.raises(RuntimeError):
+            mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
+                TestDetermineColumnMapping._RE_MAP_1_TO_2)
+
+
+    #########
+    def test__map_two_cols_to_same_std_col__throw_error(self):
+        with pytest.raises(RuntimeError):
+            mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
+                TestDetermineColumnMapping._RE_MAP_2_TO_1)
+
+
+    #########
+    def test__req_col_not_matched__throw_error(self):
+        # Without required columns, this should succeed and match everything but 1
+        res = mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
+            TestDetermineColumnMapping._RE_MAP_MISSING)
+        assert len(res) == len(TestDetermineColumnMapping._RE_MAP_MISSING) - 1
+
+        # After requiring all columns in the map to be matched, should throw an error
+        with pytest.raises(RuntimeError):
+            mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
+                TestDetermineColumnMapping._RE_MAP_MISSING,
+                list(TestDetermineColumnMapping._RE_MAP_MISSING.keys()))
+
+    # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
