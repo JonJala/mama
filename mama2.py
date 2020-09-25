@@ -11,7 +11,7 @@ import gc
 import logging
 import re
 import sys
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -41,8 +41,31 @@ A1_COL = 'A1'
 A2_COL = 'A2'
 
 # Map of default regular expressions used to convert summary stat column names to standardized names
-MAMA_RE_EXPR_MAP = "" # TODO(jonbjala)
+# TODO(jonbjala) Refine these more, just use these values are placeholders for now
+MAMA_RE_EXPR_MAP = {
+    SNP_COL : '.*SNP.*',
+    BP_COL : '.*BP.*',
+    CHR_COL : '.*CHR.*',
+    BETA_COL : '.*BETA.*',
+    FREQ_COL : '.*FREQ.*',
+    SE_COL : '.*SE.*',
+    A1_COL : '.*A1.*',
+    A2_COL : '.*A2.*',
+}
 
+# Columns that MAMA requires
+MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL}
+
+
+
+# Construct useful base-pair related constant sets
+COMPLEMENT = {
+"A" : "T",
+"T" : "A",
+"C" : "G",
+"G" : "C",
+}
+BASES = set(COMPLEMENT.keys())
 
 # Standard filter functions used for SNPs for MAMA
 MAMA_STD_FILTER_FUNCS = {
@@ -53,24 +76,34 @@ MAMA_STD_FILTER_FUNCS = {
         },
     'FREQ BOUNDS' :
         {
-        'func' : lambda df: ~sumstats_df[FREQ_COL].between(0.0, 1.0),
+        'func' : lambda df: ~df[FREQ_COL].between(0.0, 1.0),
         'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [0.0, 1.0]"
         },
     'SE BOUNDS' :
         {
-        'func' : lambda df: sumstats_df[SE_COL].lt(0.0),
+        'func' : lambda df: df[SE_COL].lt(0.0),
         'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
         },
     'SNP PREFIX' :
         {
-        'func' : lambda df: ~sumstats_df.str[SNP_COL].startswith('rs'),
+        'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
         'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
         },
     'CHR BOUNDS' :
         {
-        'func' : lambda df: ~sumstats_df[CHR_COL].between(1, 22),
+        'func' : lambda df: ~df[CHR_COL].between(1, 22),
         'description' : DEFAULT_FILTER_FUNC_DESC % "with listed chromosomes not in the range 1-22"
-        }
+        },
+    'INVALID SNPS' :
+        {
+        'func' : lambda df: df[A1_COL] == df[A2_COL],
+        'description' : DEFAULT_FILTER_FUNC_DESC % "with major allele = minor allele"
+        },
+    'PALINDROMIC SNPS' :
+        {
+        'func' : lambda df: df[A1_COL].replace(COMPLEMENT) == df[A2_COL],
+        'description' : DEFAULT_FILTER_FUNC_DESC % "where major and minor alleles are a base pair" # TODO(jonbjala) Is this description ok?
+        },
     }
 
 
@@ -94,8 +127,10 @@ HEADER = """
 """ % (__version__, SOFTWARE_CORRESPONDENCE_EMAIL1, SOFTWARE_CORRESPONDENCE_EMAIL2,
        OTHER_CORRESPONDENCE_EMAIL)
 
-# Filter function dictionary (name to function mapping) for MAMA
+# Filter function dictionaries (name to function mapping or description) for MAMA
 MAMA_STD_FILTERS = {fname : finfo['func'] for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
+MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
+                      in MAMA_STD_FILTER_FUNCS.items()}
 
 
 ####################################################################################################
@@ -226,6 +261,10 @@ def harmonize_gwas_with_ldscores(sumstats, ldscores):
     :return: TODO(jonbjala)
     """
 
+# TODO(jonbjala) Currently exceptions thrown by filters are not caught.  Need to decide whether this
+#                is correct longterm (i.e. filters should never throw or should halt the
+#                whole program if they do), though it seems like SOME kind of error reporting
+#                mechanism would be useful
 SumstatFilter = Callable[[pd.DataFrame], pd.Series]
 def filter_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Tuple[
     pd.Series, Dict[str, pd.Series]]:
@@ -256,7 +295,6 @@ def filter_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter]
     return cumulative_drop_indices, result_dict
 
 
-
 def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
     """
     Standardizes column names in the input dataframe.  Modifications are done IN PLACE to
@@ -267,7 +305,6 @@ def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
 
     :raises RuntimeError: If a column included in the renaming map is missing from the DataFrame
     :raises RuntimeError: If any renamed column will have the same name as another after mapping
-
     """
 
     # Get current column list (before mapping)
@@ -313,21 +350,25 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
     df = sumstats_df.copy()
 
     # Rename columns to standardized names
-    standardize_sumstats_cols(df, column_map)
+    rename_sumstats_cols(df, column_map)
 
-    # Set SNP ID to be index and make sure SNP IDs are lower case ("rs..." rather than "RS...")
-    df.set_index(SNP_COL)
-    df.index = sumstats_df.index.str.lower()
+    # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
+    df[SNP_COL] = df[SNP_COL].str.lower()
 
     # Get indices of rows that should be dropped
-    cumulative_drop_indices, drop_snps = filter_sumstats(sumstats_df, filters)
+    cumulative_drop_indices, drop_snps = filter_sumstats(df, filters)
+
+    # Set the index to be the SNP ID column
+    df.set_index(SNP_COL, inplace=True)
+
+    # TODO(jonbjala) Sort by index?
 
     return df, cumulative_drop_indices, drop_snps
 
 
 # TODO(jonbjala) Add support for (or maybe require?) compiled RE objects as values of re_expr_map?
 def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, str],
-                             req_cols: List[str] = []) -> Dict[str, str]:
+                             req_cols: Set[str] = []) -> Dict[str, str]:
     """
     Given a list of column names (orig_col_list) and a map of standard names to regular expressions,
     determine a mapping between elements of orig_col_list and the standard names.  The optional
@@ -348,7 +389,7 @@ def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, st
     :return: Dictionary mapping column names in a summary stat file to standard names
     """
 
-    # TODO(jonbjala) This code might be a little dense and not as clear as is desirable?
+    # TODO(jonbjala) The code for this method might be dense and not as clear as is desirable?
 
     # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
 
@@ -382,7 +423,7 @@ def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, st
 
     # Lastly, if req_cols is specified, check to make sure all are present
     if req_cols:
-        missing_std_cols = {std_col for std_col in req_cols if std_col not in result_map.values()}
+        missing_std_cols = req_cols - set(result_map.values())
         if missing_std_cols:
             raise RuntimeError("No matches for the following columns were found: %s" %
                                missing_std_cols)
@@ -390,57 +431,58 @@ def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, st
     return result_map
 
 
-# TODO(jonbjala) Need to allow for column search info / re to be passed in
 def read_and_qc_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = None,
                          re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
-                         filters  ):
+                         req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
+                         filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
+                         filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
     """
     Read the specified summary statistics file into a Pandas DataFrame, and run QC steps on it,
     the most important and notable being standardizing column names and running filters to drop
     SNPs (e.g. where MAF < 0)
 
-    :param dep_var: 1-D (length = N_pts) ndarray for the dependent variable
-    :param indep_vars: N_pts x N_var ndarray describing the independent variables
-    :param fixed_coefs: 1-D (length = N_vars) ndarray describing fixed coefficients.
-                        If None, all variables are unconstrained.
+    :param full_gwasfile_path: Path to the summary stats file.  Passed to Pandas' read_csv()
+    :param column_map: Map used to rename columns to standard strings.  If not passed in, then
+                       re_expr_map is used to calculate it.
+    :param re_expr_map: Map of standard column names to regular expressions used for matching
+                        against summary stat file column names.
+    :param req_std_cols: Required standard columns in the resulting DataFrame
+    :param filters: Map of filter functions used to drop undesired SNPs
+    :param filt_descriptions: Map of filter function descriptions
 
-    :return: 1-D (length = N_vars) ndarray containing the regression coefficient values
-             in the same order as listed in indep_vars
+    :raises RuntimeError: If req_std_cols contains columns not in column_map.keys()
+
+    :return: A modified dataframe with renamed columns (and the SNP ID column as the index)
+             minus undesired SNPs / rows.
     """
+
     # Read the summary stat file into a DataFrame
     initial_df = pd.read_csv(full_gwasfile_path, sep=None, engine='python', comment='#')
+
+    # Log the top portion of the dataframe at debug level
+    logging.debug("First set of rows from initial reading of summary stats:\n%s", initial_df.head())
 
     # If no column mapping was passed in, need to determine that
     if column_map is None:
         column_map = determine_column_mapping(initial_df.columns.to_list(), re_expr_map)
+    else:
+        missing_req_cols = req_std_cols - set(column_map.keys())
+        if missing_req_cols:
+            raise RuntimeError("Required columns (%s) missing from column mapping: %s" %
+                               (missing_req_cols, column_map))
 
     # Run QC on the df
-    qc_df, drop_indices, drop_map = qc_sumstats(initial_df, MAMA_STD_FILTERS, column_map)
+    qc_df, drop_indices, per_filt_drop_map = qc_sumstats(initial_df, filters, column_map)
 
     # Log SNP drop info
-    # TODO(jonbjala)
+    for filt_name, filt_drops in per_filt_drop_map.items():
+        logging.info("Dropped %d SNPs with filter \"%s\" (%s)", filt_drops.sum(), filt_name,
+            filt_descriptions.get(filt_name, "No description available"))
+        logging.debug("RS IDs = %s\n", initial_df[filt_drops.to_list()])
+    logging.info("\nDropped %d SNPs in total (as the union of drops, this may be "
+                 "less than the total of all the per-filter drops)", drop_indices.sum())
 
     return qc_df
-
-# # Standard filter functions used for SNPs for MAMA
-# MAMA_STD_FILTER_FUNCS = {
-#     'NO NAN' :
-#         {
-#         'func' : lambda df: df.isnull().any(axis=1),
-#         'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
-#         },
-# MAMA_STD_FILTERS = {fname : finfo['func'] for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
-    # # Drop SNPS / Log results
-    # cumulative_drop_indices = pd.Series(data=np.full(len(sumstats_df), False))
-    # logging.info("Filter results for summary statistics [%s]:", df_name)
-    # for filt_name, drop_indices in drop_snps.items():
-    #     logging.info("\tFilter %s: dropped %d SNPs (%s)", filt_name, drop_indices.sum(),
-    #         MAMA_STD_FILTER_FUNCS[filt_name]['description'])
-    #     logging.debug("\tSNPs dropped = %s\n", sumstats_df.index[drop_indices].to_list())
-    #     cumulative_drop_indices |= drop_indices
-    # logging.info("\n")
-    # sumstats_df.drop(cumulative_drop_indices, inplace=True)
-
 
 
 def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,

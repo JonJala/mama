@@ -356,6 +356,8 @@ class TestFilterSumstats:
 
     __DATAFRAME_SHAPES = list(itertools.permutations(__DATAFRAME_LENGTHS, 2))
 
+    # TODO(jonbjala) Test filter that examines a column that's not present! / a filter that throws
+
     #########
     @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
     def test__single_filt__return_expected_results(self, df_shape):
@@ -671,3 +673,8 @@ class TestDetermineColumnMapping:
                 list(TestDetermineColumnMapping._RE_MAP_MISSING.keys()))
 
     # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
+
+
+# TODO(jonbjala) Test qc_sumstats()
+
+# TODO(jonbjala) Test filter functions at some point
