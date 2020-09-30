@@ -19,6 +19,8 @@ N_VAR_VALUES = [3, 4, 10]  # Some tests rely on these numbers being >= 2
 N_PTS_VALUES = [10, 100, 1000]
 N_TUPLES = [(i,j) for (i, j) in itertools.product(N_VAR_VALUES, N_PTS_VALUES) if i <= j]
 
+# TODO(jonbjala) Check for contents of exception messages when possible: https://docs.pytest.org/en/stable/assert.html
+
 ###########################################
 
 class TestRunRegression:
@@ -350,35 +352,36 @@ class TestRunMamaMethod:
 
 # TODO(jonbjala) Create fixture to generate dataframes filled with arange (parameterized)
 
-class TestFilterSumstats:
+_FILTER_TEST_DATAFRAME_LENGTHS = [2, 3, 6, 10, 50]
+_FILTER_TEST_DATAFRAME_SHAPES = list(itertools.permutations(_FILTER_TEST_DATAFRAME_LENGTHS, 2))
+@pytest.fixture(scope="function", params=_FILTER_TEST_DATAFRAME_SHAPES)
+def runfilter_test_df(request):
 
-    __DATAFRAME_LENGTHS = [2, 3, 6, 10, 50]
+    # Fill DF with numbers 0..N-1 where there are N cells
+    num_rows = request.param[0]
+    num_cols = request.param[1]
+    num_cells = num_rows * num_cols
 
-    __DATAFRAME_SHAPES = list(itertools.permutations(__DATAFRAME_LENGTHS, 2))
+    return pd.DataFrame(np.arange(num_cells).reshape((num_rows, num_cols)))
+
+
+class TestRunFilters:
 
     # TODO(jonbjala) Test filter that examines a column that's not present! / a filter that throws
 
     #########
-    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
-    def test__single_filt__return_expected_results(self, df_shape):
-
-        # Fill DF with numbers 0..N-1 where there are N cells
-        num_rows = df_shape[0]
-        num_cols = df_shape[1]
-        num_cells = num_rows * num_cols
-        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+    def test__single_filt__return_expected_results(self, runfilter_test_df):
 
         # Identify value whose row to filter out and the expected filtering indices
-        target_int = num_cells // 2
-        expected_indices = (df == target_int).any(axis='columns')
+        target_int = runfilter_test_df.size // 2
+        expected_indices = (runfilter_test_df == target_int).any(axis='columns')
 
         # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
         assert expected_indices.sum() == 1
-        assert len(df) == num_rows
 
         # Filter the dataframe
         func_name = "Hello, world"
-        result_indices, filt_map = mama2.filter_sumstats(df,
+        result_indices, filt_map = mama2.run_filters(runfilter_test_df,
             {func_name : lambda df: (df == target_int).any(axis='columns')})
 
         # AFTER:
@@ -386,9 +389,7 @@ class TestFilterSumstats:
         assert len(filt_map) == 1
         assert func_name in filt_map
 
-        #   Confirm dataframe does not contain the target int and has one fewer row
-        assert len(df) == num_rows - 1
-        assert (df == target_int).any(axis=None) == False
+        #   Confirm result indices correct
         assert all(result_indices == filt_map[func_name])
         assert all(result_indices == expected_indices)
 
@@ -396,30 +397,22 @@ class TestFilterSumstats:
 
 
     #########
-    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
-    def test__two_filt_no_overlap__return_expected_results(self, df_shape):
-
-        # Fill DF with numbers 0..N-1 where there are N cells
-        num_rows = df_shape[0]
-        num_cols = df_shape[1]
-        num_cells = num_rows * num_cols
-        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+    def test__two_filt_no_overlap__return_expected_results(self, runfilter_test_df):
 
         # Identify value whose row to filter out and the expected filtering indices
         target_int1 = 0
-        target_int2 = num_cells - 1
-        expected_indices1 = (df == target_int1).any(axis='columns')
-        expected_indices2 = (df == target_int2).any(axis='columns')
+        target_int2 = runfilter_test_df.size - 1
+        expected_indices1 = (runfilter_test_df == target_int1).any(axis='columns')
+        expected_indices2 = (runfilter_test_df == target_int2).any(axis='columns')
 
-        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        # BEFORE: Confirm dataframe contains the target int once
         assert expected_indices1.sum() == 1
         assert expected_indices2.sum() == 1
-        assert len(df) == num_rows
 
         # Filter the dataframe
         func_name1 = "Hello"
         func_name2 = "World"
-        result_indices, filt_map = mama2.filter_sumstats(df,
+        result_indices, filt_map = mama2.run_filters(runfilter_test_df,
             {func_name1 : lambda df: (df == target_int1).any(axis='columns'),
              func_name2 : lambda df: (df == target_int2).any(axis='columns')})
 
@@ -429,36 +422,25 @@ class TestFilterSumstats:
         assert func_name1 in filt_map
         assert func_name2 in filt_map
 
-        #   Confirm dataframe does not contain the target int and has one fewer row
-        assert len(df) == num_rows - 2
-        assert (df == target_int1).any(axis=None) == False
-        assert (df == target_int1).any(axis=None) == False
+        #   Confirm result indices correct
         assert all(result_indices == filt_map[func_name1] | filt_map[func_name2])
         assert result_indices.sum() == 2
 
 
     #########
-    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
-    def test__one_filt_duplicated__same_as_just_once(self, df_shape):
-
-        # Fill DF with numbers 0..N-1 where there are N cells
-        num_rows = df_shape[0]
-        num_cols = df_shape[1]
-        num_cells = num_rows * num_cols
-        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
+    def test__one_filt_duplicated__same_as_just_once(self, runfilter_test_df):
 
         # Identify value whose row to filter out and the expected filtering indices
-        target_int = num_cells // 2
-        expected_indices = (df == target_int).any(axis='columns')
+        target_int = runfilter_test_df.size // 2
+        expected_indices = (runfilter_test_df == target_int).any(axis='columns')
 
-        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        # BEFORE: Confirm dataframe contains the target int once
         assert expected_indices.sum() == 1
-        assert len(df) == num_rows
 
         # Filter the dataframe
         func_name1 = "Hello, world"
         func_name2 = "Goodbye, everyone"
-        result_indices, filt_map = mama2.filter_sumstats(df,
+        result_indices, filt_map = mama2.run_filters(runfilter_test_df,
             {func_name1 : lambda df: (df == target_int).any(axis='columns'),
              func_name2 : lambda df: (df == target_int).any(axis='columns')})
 
@@ -468,48 +450,36 @@ class TestFilterSumstats:
         assert func_name1 in filt_map
         assert func_name2 in filt_map
 
-        #   Confirm dataframe does not contain the target int and has one fewer row
-        assert len(df) == num_rows - 1
-        assert (df == target_int).any(axis=None) == False
+        #   Confirm result indices correct
         assert all(result_indices == filt_map[func_name1])
         assert all(result_indices == filt_map[func_name2])
         assert all(result_indices == expected_indices)
 
 
     #########
-    @pytest.mark.parametrize("df_shape", __DATAFRAME_SHAPES)
-    def test__np_filt_or_useless_filt__no_change(self, df_shape):
+    def test__np_filt_or_useless_filt__no_change(self, runfilter_test_df):
 
-        # Fill DF with numbers 0..N-1 where there are N cells
-        num_rows = df_shape[0]
-        num_cols = df_shape[1]
-        num_cells = num_rows * num_cols
-        df = pd.DataFrame(np.arange(num_cells).reshape(df_shape))
-
-        # BEFORE: Confirm dataframe copy contains the correct number of rows
-        df_copy1 = df.copy()
-        assert len(df_copy1) == num_rows
+        # BEFORE: Copy dataframe
+        df_copy1 = runfilter_test_df.copy()
 
         # Filter the copy of the dataframe with no filter
-        result_indices, filt_map = mama2.filter_sumstats(df_copy1, {})
+        result_indices, filt_map = mama2.run_filters(df_copy1, {})
 
         # AFTER:
         #   Confirm filt_map correct
         assert len(filt_map) == 0
 
         #   Confirm dataframe is unchanged
-        assert len(df_copy1) == num_rows
-        assert df_copy1.equals(df)
+        assert df_copy1.equals(runfilter_test_df)
 
         ######
 
-        # BEFORE: Confirm dataframe copy contains the correct number of rows
-        df_copy2 = df.copy()
-        assert len(df_copy2) == num_rows
+        # BEFORE: Copy dataframes
+        df_copy2 = runfilter_test_df.copy()
 
         # Filter the copy of the dataframe with useless filter
         func_name = "useless"
-        result_indices, filt_map = mama2.filter_sumstats(df_copy1,
+        result_indices, filt_map = mama2.run_filters(df_copy1,
             {func_name : lambda df: (df == -1).any(axis='columns')})
 
         # AFTER:
@@ -518,8 +488,7 @@ class TestFilterSumstats:
         assert func_name in filt_map
 
         #   Confirm dataframe is unchanged
-        assert len(df_copy2) == num_rows
-        assert df_copy2.equals(df)
+        assert df_copy2.equals(runfilter_test_df)
         assert not any(filt_map[func_name])
         assert not any(result_indices)
 
@@ -534,7 +503,7 @@ class TestFilterSumstats:
 
         # Filter the dataframe with useless filter
         func_name = "useless"
-        result_indices, filt_map = mama2.filter_sumstats(df,
+        result_indices, filt_map = mama2.run_filters(df,
             {func_name : lambda df: (df == -1).any(axis='columns')})
 
         # AFTER:
@@ -638,8 +607,7 @@ class TestDetermineColumnMapping:
         # All columns should match, so specifying varying required cols should all work
         for i in range(num_map_cols + 1):
             res = mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS, re_map,
-                                                 req_cols[:i])
-            print("JJ: ", res)
+                                                 set(req_cols[:i]))
             assert len(res) == num_map_cols
             res_vals = set(res.values())
             assert len(res.values()) == num_map_cols
@@ -670,7 +638,7 @@ class TestDetermineColumnMapping:
         with pytest.raises(RuntimeError):
             mama2.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
                 TestDetermineColumnMapping._RE_MAP_MISSING,
-                list(TestDetermineColumnMapping._RE_MAP_MISSING.keys()))
+                set(TestDetermineColumnMapping._RE_MAP_MISSING.keys()))
 
     # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
 
@@ -678,3 +646,82 @@ class TestDetermineColumnMapping:
 # TODO(jonbjala) Test qc_sumstats()
 
 # TODO(jonbjala) Test filter functions at some point
+
+
+###########################################
+
+class TestIntersectSnpList:
+
+    #########
+    @pytest.mark.parametrize("mults, expected_intersection_size",
+    [
+            ([2, 3, 5], 7),
+            ([2, 4, 6, 8], 5),
+            ([1, 1, 1], 100),
+            ([], 50),
+            ([5], 30)
+    ])
+    def test__varying_snps__expected_intersection(self, mults, expected_intersection_size):
+
+        # Derived parameters
+        lcm = np.lcm.reduce(mults) if mults else 1
+        n_max = lcm * expected_intersection_size
+
+        # Function to return a dataframe with SNP IDs spaced out by n_mult
+        def get_df(n_mult):
+            snp_list = [str(n_mult * snp_num) for snp_num in range(1, n_max + 1)]
+            return pd.DataFrame(data={"dummy" : [1.0] * len(snp_list)}, index=snp_list)
+
+        # Determine LD score and sumstat parameters
+        ldscores = get_df(1)
+        sumstats = {i : get_df(i) for i in mults}
+
+        intersection = mama2.intersect_snp_lists(sumstats, ldscores)
+        assert len(intersection) == expected_intersection_size
+
+
+    def test__no_intersection__returns_empty_index(self):
+
+        # Determine LD score and sumstat parameters
+        ld_snps = [str(snp_num) for snp_num in range(1, 10)]
+        ldscores = pd.DataFrame(data={"dummy" : [1.0] * len(ld_snps)}, index=ld_snps)
+
+        # Ensure the sumstats all have SNPs that are outside of the LD score SNP list
+        sumstat_snps = ld_snps = [str(snp_num) for snp_num in
+                                  range(len(ld_snps) + 1, len(ld_snps) + 10)]
+        sumstats = {i : pd.DataFrame(data={"dummy" : [1.0] * len(sumstat_snps)}, index=sumstat_snps)
+                    for i in range(1, 5)}
+
+        intersection = mama2.intersect_snp_lists(sumstats, ldscores)
+        assert len(intersection) == 0
+
+
+###########################################
+
+# class TestHarmonizeAll:
+
+#     #########
+#     @pytest.mark.parametrize("mults, expected_intersection_size",
+#     [
+#             ([2, 3, 5], 7),
+#     ])
+#     def test__varying_snps__expected_intersection(self, mults, expected_intersection_size):
+
+#         # Derived parameters
+#         lcm = np.lcm.reduce(mults) if mults else 1
+#         n_max = lcm * expected_intersection_size
+
+#         # Function to return a dataframe with SNP IDs spaced out by n_mult
+#         def get_df(n_mult):
+#             snp_list = [str(n_mult * snp_num) for snp_num in range(1, n_max + 1)]
+#             return pd.DataFrame(data={"dummy" : [1.0] * len(snp_list)}, index=snp_list)
+
+#         # Determine LD score and sumstat parameters
+#         ldscores = get_df(1)
+#         sumstats = {i : get_df(i) for i in mults}
+
+#         intersection = mama2.harmonize_all(sumstats, ldscores)
+#         assert False
+
+
+# TODO(jonbjala) Test run_filters?

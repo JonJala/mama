@@ -1,4 +1,4 @@
-_a2_	_a1_	_se_	_freq_	_beta_	_chr_	_snp_	_keep_5_
+_a2_	_a1_	_se_	_freq_	_beta_	_chr_	_snp_	_keep_4_
 A	T	-1.0	0.25	0.0	1	RS10	Drop
 C	G	0.5	0.25	0.0625	2	RS11	Drop
 T	T	0.5	0.25	0.125	3	RS12	Drop
@@ -13,5 +13,5 @@ T	C	0.5	0.25	0.625	0	rs20	Drop
 G	T	0.5	0.25	0.6875	12	Hello	Drop
 A	G	0.5	0.25	0.75	13	rs22	n/a
 n/a	A	0.5	0.25	0.8125	14	rs23	n/a
-T	C	0.5	0.25	0.875	15	rs24	Keep_4
-G	T	0.5	0.25	0.9375	16	Rs25	Keep_5
+T	C	0.5	0.25	0.875	15	rs16	Drop
+G	T	0.5	0.25	0.9375	16	Rs25	Keep_4

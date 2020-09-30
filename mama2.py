@@ -11,7 +11,7 @@ import gc
 import logging
 import re
 import sys
-from typing import Any, Callable, Dict, List, Set, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -26,9 +26,6 @@ __version__ = '1.0.0'
 SOFTWARE_CORRESPONDENCE_EMAIL1 = "grantgoldman0@gmail.com"
 SOFTWARE_CORRESPONDENCE_EMAIL2 = "jjala.ssgac@gmail.com"
 OTHER_CORRESPONDENCE_EMAIL = "paturley@broadinstitute.org"
-
-# Standard filter function description format string
-DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
 
 # Standard column names
 SNP_COL = 'SNP'
@@ -66,6 +63,9 @@ COMPLEMENT = {
 "G" : "C",
 }
 BASES = set(COMPLEMENT.keys())
+
+# Standard filter function description format string
+DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
 
 # Standard filter functions used for SNPs for MAMA
 MAMA_STD_FILTER_FUNCS = {
@@ -251,48 +251,118 @@ def format_terminal_call(cmd: List[str]) -> str:
     return ' '.join(cmd).replace("--", " \\ \n\t--")
 
 
-def harmonize_gwas_with_ldscores(sumstats, ldscores):
-    """
-    Does the harmonization between the QC'ed input summary statistics and the LD scores
 
-    :param sumstats: TODO(jonbjala)
-    :param ldscores: TODO(jonbjala)
-
-    :return: TODO(jonbjala)
+def intersect_snp_lists(sumstats: Dict[str, pd.DataFrame], ldscores: pd.DataFrame) -> pd.Index:
     """
+    Returns a pandas Index that contains the intersection of all SNPs across the summary statistics
+    and the LD scores
+
+    :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
+                     stat information.  The DFs should all have been QCed already.
+    :param ldscores: DataFrame of LD score information
+
+    :return pd.Index: A pandas Index containing the intersection of SNPs from input sources
+    """
+
+    # Run intersection() on all sets of indices (using the LD score SNP list as the initializer)
+    return functools.reduce(lambda c_ind, df_p: c_ind.intersection(df_p.index),
+                            sumstats.values(), ldscores.index)
+
 
 # TODO(jonbjala) Currently exceptions thrown by filters are not caught.  Need to decide whether this
 #                is correct longterm (i.e. filters should never throw or should halt the
 #                whole program if they do), though it seems like SOME kind of error reporting
 #                mechanism would be useful
 SumstatFilter = Callable[[pd.DataFrame], pd.Series]
-def filter_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Tuple[
-    pd.Series, Dict[str, pd.Series]]:
+def run_filters(df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Dict[str, pd.Series]:
     """
-    Runs a list of filters on the input dataframe, tallying how many SNPs should be dropped for
-    each filter, and how many SNPs total (in the union of drops, so it's not necessarily equal to
-    the sum of drops for all filters).  Then modifies the dataframe IN PLACE to drop these snps.
+    Runs a list of filters on the input dataframe, returning a dictionary of Boolean Series
+    indicating which rows / SNPs were caught by the filters and the Boolean Series corresponding
+    to the union of all filtering
 
-    :param sumstats_df: Dataframe holding
+    :param sumstats_df: Dataframe holding summary stats
+    :param filters: Dictionary of filter name -> filter function
 
     :return: Tuple containing:
              1) The indices of the union of SNPs being dropped, and
              2) A dictionary mapping filter name (same as the key in "filters" input parameter)
-                to an ordered collection (pd.Series) of booleans indicating which SNPs to drop
-                for that filter
+                to an ordered collection (pd.Series) of booleans indicating which SNPs were caught
+                by the associated filter
+    """
+    # Run the individual filters
+    filt_results = {filter_name : filter_func(df) for filter_name, filter_func in filters.items()}
+
+    # Figure out the indices of the union of SNPs caught by all the filters
+    all_false = pd.Series(data=np.full(len(df), False), index=df.index)
+    cumulative_indices = functools.reduce(lambda s1, s2: s1 | s2, filt_results.values(), all_false)
+
+    return cumulative_indices, filt_results
+
+
+def standardize_sumstats(sumstats: Dict[str, pd.DataFrame], ref: Tuple[str, pd.DataFrame] =
+    ("", None)) -> Tuple[pd.Series, pd.Series]:
+    """
+    Takes a set of summary statistics and standardizes them according to a reference set.  This will
+    involve keeping any that match reference alleles (or strand-swapped versions), adjusting any
+    that are reference allele-flipped, and discarding the rest.  If a reference isn't included,
+    one of the populations from the sumstats input parameter will be chosen.
+
+    :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
+                     stat information.  The DFs should all have been QCed already and should all
+                     match SNP lists exactly.
+    :param ref:
+    """
+    pass
+
+# TODO(jonbjala) If this can be expressed as filters, then this could just call filter_sumstats()
+def harmonize_all(sumstats: Dict[str, pd.DataFrame], ldscores: pd.DataFrame):
+    """
+    Does the harmonization between the QC'ed input summary statistics and the LD scores.  The
+    DataFrames are all modified in place (SNPs/rows dropped and reference alleles transformed
+    as needed), and all inputs are expected to have indices = SNP ID (beginning with "rs")
+
+    :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
+                     stat information.  The DFs should all have been QCed already.
+    :param ldscores: DataFrame of LD score information
     """
 
-    # Run each filter on the dataframe and record the resulting index arrays
-    result_dict = {filter_name : filt(sumstats_df) for filter_name, filt in filters.items()}
+    # Intersect all the SNP lists to get the SNPs all data sources have in common
+    snp_intersection = intersect_snp_lists(sumstats, ldscores)
 
-    # Figure out the indices of the union of SNPs that should be dropped
-    cumulative_drop_indices = functools.reduce(lambda s1, s2: s1 | s2, result_dict.values(),
-        pd.Series(data=np.full(len(sumstats_df), False), index=sumstats_df.index))
+    # Reduce each DF down to the SNP intersection TODO(jonbjala) Add logging / reporting, tally of drops, etc
+    for pop_name, pop_df in sumstats.items():
+        snps_to_drop = pop_df.index.difference(snp_intersection)
+        pop_df.drop(snps_to_drop, inplace=True)
+    snps_to_drop = ldscores.index.difference(snp_intersection)
+    ldscores.drop(snps_to_drop, inplace=True)
 
-    # Drop the rows
-    sumstats_df.drop(sumstats_df.index[cumulative_drop_indices], inplace=True)
 
-    return cumulative_drop_indices, result_dict
+    # Standardize alleles in the summary statistics
+    #     1) Gain a reference to the information for the "first" population
+    ss_pop_iter = iter(sumstats.items())
+    ref_pop, ref_df = next(ss_pop_iter)
+    ref_a1 = ref_df[A1_COL]
+    ref_a2 = ref_df[A2_COL]
+    ref_a1_comp = ref_df[A1_COL].replace(COMPLEMENT)
+    ref_a2_comp = ref_df[A2_COL].replace(COMPLEMENT)
+
+    #     2) Define useful filter functions
+    def allele_match(df: pd.DataFrame):
+        exact_match = (df[A1_COL] == ref_a1) & (df[A2_COL] == ref_a2)
+        sflip_match = (df[A1_COL] == ref_a1_comp) & (df[A2_COL] == ref_a2_comp)
+        return exact_match | sflip_match
+
+    def allele_ref_swap(df: pd.DataFrame):
+        exact_swap = (df[A1_COL] == ref_a2) & (df[A2_COL] == ref_a1)
+        sflip_swap = (df[A1_COL] == ref_a2_comp) & (df[A2_COL] == ref_a1_comp)
+        return exact_swap | sflip_swap
+    allele_filts = {"allele_match" : allele_match, "allele_ref_swap" : allele_ref_swap}
+
+    #     3) Iterate through the remaining populations
+    for pop_name, pop_df in ss_pop_iter:
+        keep_indices, filt_indices = run_filters(pop_df, allele_filts)
+        drop_indices = ~keep_indices
+
 
 
 def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
@@ -332,7 +402,8 @@ def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
 
 
 def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
-                column_map: Dict[str, str]) -> Tuple[pd.DataFrame, pd.Series, Dict[str, pd.Series]]:
+                column_map: Dict[str, str]) -> Tuple[pd.DataFrame, pd.Series,
+                                                     Dict[str, pd.Series], List]:
     """
     Runs QC steps like renaming columns and dropping rows based on filters
 
@@ -344,6 +415,7 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
              2) The indices of the union of SNPs being dropped, and
              3) A dictionary mapping filter name to an ordered collection (pd.Series) of
                 booleans indicating which SNPs to drop for that filter
+             4) A series containing the rsIDs of SNPs that are dropped due to being duplicates
     """
 
     # Make copy of the dataframe (this copy will be modified)
@@ -355,15 +427,19 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: Dict[str, SumstatFilter],
     # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
     df[SNP_COL] = df[SNP_COL].str.lower()
 
-    # Get indices of rows that should be dropped
-    cumulative_drop_indices, drop_snps = filter_sumstats(df, filters)
+    # Run filters and drop rows
+    cumulative_drop_indices, filt_drop_indices = run_filters(df, filters)
+    df.drop(df.index[cumulative_drop_indices], inplace=True)
 
-    # Set the index to be the SNP ID column
+    # Drop duplicate SNP rows, set the SNP column to be the index, and sort by index
+    dup_snp_indices = df[SNP_COL].duplicated()
+    dup_snps = df[SNP_COL][dup_snp_indices]
+    df.drop(df.index[dup_snp_indices], inplace=True)
     df.set_index(SNP_COL, inplace=True)
+    df.sort_index(inplace=True)
 
-    # TODO(jonbjala) Sort by index?
 
-    return df, cumulative_drop_indices, drop_snps
+    return df, cumulative_drop_indices, filt_drop_indices, dup_snps.to_list()
 
 
 # TODO(jonbjala) Add support for (or maybe require?) compiled RE objects as values of re_expr_map?
@@ -472,15 +548,17 @@ def read_and_qc_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = N
                                (missing_req_cols, column_map))
 
     # Run QC on the df
-    qc_df, drop_indices, per_filt_drop_map = qc_sumstats(initial_df, filters, column_map)
+    qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filters, column_map)
 
     # Log SNP drop info
     for filt_name, filt_drops in per_filt_drop_map.items():
-        logging.info("Dropped %d SNPs with filter \"%s\" (%s)", filt_drops.sum(), filt_name,
+        logging.info("Filtered out  %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
             filt_descriptions.get(filt_name, "No description available"))
         logging.debug("RS IDs = %s\n", initial_df[filt_drops.to_list()])
-    logging.info("\nDropped %d SNPs in total (as the union of drops, this may be "
+    logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
+    logging.info("\nAdditionally dropped %d duplicate SNPs", len(dups))
+    logging.debug("RS IDs = %s\n", dups)
 
     return qc_df
 
