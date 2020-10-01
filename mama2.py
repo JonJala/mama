@@ -299,23 +299,101 @@ def run_filters(df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Dict[str
     return cumulative_indices, filt_results
 
 
-def standardize_sumstats(sumstats: Dict[str, pd.DataFrame], ref: Tuple[str, pd.DataFrame] =
-    ("", None)) -> Tuple[pd.Series, pd.Series]:
+def flip_alleles(df: pd.DataFrame, flip_indices: pd.Series):
+    """
+    Given an Series of booleans (corresponding to rows/indices in the df input parameter), flips
+    the major and minor alleles in the df (in place) for rows indicated by True.  Assumes that
+    flip_indices is the correct length for df (they each contain the same number of rows)
+
+    :param df: QC'ed DataFrame holding the summary stat information
+    :param flip_indices: Series holding True/False (True for rows that should be flipped)
+    """
+
+    # Replace freq with 1.0 - freq, beta with -beta, and swap major and minor alleles
+    # (but only do so for the indices where flip_indices = True)
+    df[FREQ_COL].mask(flip_indices, 1.0 - df[FREQ_COL], inplace=True)
+    df[BETA_COL].mask(flip_indices, -df[BETA_COL], inplace=True)
+    df.loc[flip_indices, [A1_COL, A2_COL]] = df.loc[flip_indices, [A2_COL, A1_COL]].values
+
+
+def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, pd.DataFrame]=()
+                             ) -> Tuple[Any, pd.Series, pd.Series, Dict[Any, pd.Series]]:
     """
     Takes a set of summary statistics and standardizes them according to a reference set.  This will
     involve keeping any that match reference alleles (or strand-swapped versions), adjusting any
-    that are reference allele-flipped, and discarding the rest.  If a reference isn't included,
+    that are reference allele-flipped, and keep track of the rest.  If a reference isn't included,
     one of the populations from the sumstats input parameter will be chosen.
 
     :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
                      stat information.  The DFs should all have been QCed already and should all
                      match SNP lists exactly.
-    :param ref:
+    :param ref: Reference DataFrame (used as a source of ground truth for major/minor alleles)
+                Assumed to be QCed and match SNP lists with DFs in sumstats input parameter
+
+    :return: A tuple containing:
+             1) The identifier of the reference population
+             2) The indices that should be dropped due to a mismatch of at least one GWAS
+             3) The recommended drops (as indices) broken down by population
+             4) The indices of SNPs that needed adjusting due to major/minor allele swaps
+                in at least one GWAS) along with a dictionary that contains the drops broken down by
+                population name
     """
-    pass
+
+    # Get list of name / DataFrame pairs by population
+    ss_pops = list(sumstats.items())
+
+    # Determine reference population name and DataFrame (if not supplied just designate one)
+    ref = ref if ref else ss_pops[0]
+    ref_popname = ref[0]
+    ref_df = ref[1]
+
+
+    # Define filter functions / filter function dictionary with respect to the reference population
+    ref_a1 = ref_df[A1_COL]
+    ref_a2 = ref_df[A2_COL]
+    ref_a1_comp = ref_df[A1_COL].replace(COMPLEMENT)
+    ref_a2_comp = ref_df[A2_COL].replace(COMPLEMENT)
+
+    def allele_match(df: pd.DataFrame):
+        exact_match = (df[A1_COL] == ref_a1) & (df[A2_COL] == ref_a2)
+        sflip_match = (df[A1_COL] == ref_a1_comp) & (df[A2_COL] == ref_a2_comp)
+        return exact_match | sflip_match
+
+    def allele_ref_swap(df: pd.DataFrame):
+        exact_swap = (df[A1_COL] == ref_a2) & (df[A2_COL] == ref_a1)
+        sflip_swap = (df[A1_COL] == ref_a2_comp) & (df[A2_COL] == ref_a1_comp)
+        return exact_swap | sflip_swap
+
+    allele_filts = {"allele_match" : allele_match, "allele_ref_swap" : allele_ref_swap}
+
+
+    # Run filters on all populations (filters are checking for allele matches, so any that aren't
+    # caught should be dropped)
+    drop_dict = {}
+    ref_flip_dict = {}
+    cumulative_drop_indices = pd.Series(data=np.full(len(ref_df), False), index=ref_df.index)
+    for pop_name, pop_df in ss_pops:
+        # Run the filters to determine which SNPs match (and which match aside from ref allele flip)
+        keep_indices, filt_indices = run_filters(pop_df, allele_filts)
+
+        # Determine which SNPs should be dropped and which should be flipped (reference alleles)
+        drop_indices = ~keep_indices
+        flip_indices = filt_indices["allele_ref_swap"]
+
+        # Save off the required information
+        drop_dict[pop_name] = drop_indices
+        ref_flip_dict[pop_name] = flip_indices
+        cumulative_drop_indices |= drop_indices
+
+        # Flip the SNPs that need to be flipped
+        flip_alleles(pop_df, flip_indices)
+
+
+    return ref_popname, cumulative_drop_indices, drop_dict, ref_flip_dict
+
 
 # TODO(jonbjala) If this can be expressed as filters, then this could just call filter_sumstats()
-def harmonize_all(sumstats: Dict[str, pd.DataFrame], ldscores: pd.DataFrame):
+def harmonize_all(sumstats: Dict[Any, pd.DataFrame], ldscores: pd.DataFrame):
     """
     Does the harmonization between the QC'ed input summary statistics and the LD scores.  The
     DataFrames are all modified in place (SNPs/rows dropped and reference alleles transformed
@@ -336,34 +414,14 @@ def harmonize_all(sumstats: Dict[str, pd.DataFrame], ldscores: pd.DataFrame):
     snps_to_drop = ldscores.index.difference(snp_intersection)
     ldscores.drop(snps_to_drop, inplace=True)
 
-
     # Standardize alleles in the summary statistics
-    #     1) Gain a reference to the information for the "first" population
-    ss_pop_iter = iter(sumstats.items())
-    ref_pop, ref_df = next(ss_pop_iter)
-    ref_a1 = ref_df[A1_COL]
-    ref_a2 = ref_df[A2_COL]
-    ref_a1_comp = ref_df[A1_COL].replace(COMPLEMENT)
-    ref_a2_comp = ref_df[A2_COL].replace(COMPLEMENT)
+    ref_popname, drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)
 
-    #     2) Define useful filter functions
-    def allele_match(df: pd.DataFrame):
-        exact_match = (df[A1_COL] == ref_a1) & (df[A2_COL] == ref_a2)
-        sflip_match = (df[A1_COL] == ref_a1_comp) & (df[A2_COL] == ref_a2_comp)
-        return exact_match | sflip_match
+    # Drop SNPs where there was an unfixable major/minor allele mismatch
+    for pop_name, pop_df in sumstats.items():
+        pop_df.drop(pop_df.index[drop_indices], inplace=True)
 
-    def allele_ref_swap(df: pd.DataFrame):
-        exact_swap = (df[A1_COL] == ref_a2) & (df[A2_COL] == ref_a1)
-        sflip_swap = (df[A1_COL] == ref_a2_comp) & (df[A2_COL] == ref_a1_comp)
-        return exact_swap | sflip_swap
-    allele_filts = {"allele_match" : allele_match, "allele_ref_swap" : allele_ref_swap}
-
-    #     3) Iterate through the remaining populations
-    for pop_name, pop_df in ss_pop_iter:
-        keep_indices, filt_indices = run_filters(pop_df, allele_filts)
-        drop_indices = ~keep_indices
-
-
+    # TODO(jonbjala) Log dropped SNPs (at least a total)
 
 def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
     """
