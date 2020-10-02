@@ -565,17 +565,18 @@ def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, st
     return result_map
 
 
-def read_and_qc_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = None,
-                         re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
-                         req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
-                         filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
-                         filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
+def process_sumstats(initial_df: pd.DataFrame,
+                     column_map: Dict[str, str] = None,
+                     re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
+                     req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
+                     filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
+                     filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
     """
     Read the specified summary statistics file into a Pandas DataFrame, and run QC steps on it,
     the most important and notable being standardizing column names and running filters to drop
     SNPs (e.g. where MAF < 0)
 
-    :param full_gwasfile_path: Path to the summary stats file.  Passed to Pandas' read_csv()
+    :param initial_df: DataFrame as initially read in
     :param column_map: Map used to rename columns to standard strings.  If not passed in, then
                        re_expr_map is used to calculate it.
     :param re_expr_map: Map of standard column names to regular expressions used for matching
@@ -590,20 +591,17 @@ def read_and_qc_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = N
              minus undesired SNPs / rows.
     """
 
-    # Read the summary stat file into a DataFrame
-    initial_df = pd.read_csv(full_gwasfile_path, sep=None, engine='python', comment='#')
-
     # Log the top portion of the dataframe at debug level
     logging.debug("First set of rows from initial reading of summary stats:\n%s", initial_df.head())
 
-    # If no column mapping was passed in, need to determine that
-    if column_map is None:
-        column_map = determine_column_mapping(initial_df.columns.to_list(), re_expr_map)
-    else:
+    # Either generate column map or validate the one passed in (if one was passed in)
+    if column_map:
         missing_req_cols = req_std_cols - set(column_map.keys())
         if missing_req_cols:
             raise RuntimeError("Required columns (%s) missing from column mapping: %s" %
                                (missing_req_cols, column_map))
+    else:
+        column_map = determine_column_mapping(initial_df.columns.to_list(), re_expr_map)
 
     # Run QC on the df
     qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filters, column_map)
@@ -854,13 +852,91 @@ def run_mama_method(harm_betas, omega, sigma):
     print("JJ:\n", new_beta_ses.shape)
 
 
-def mama_pipeline(iargs):
+def obtain_df(possible_df: Any, id_str: str) -> pd.DataFrame:
+    """
+    Small helper function that handles functionality related to reading in a DataFrame
+
+    :param possible_df: Should either be a string indicating the full path to a file to be
+                        read into a DataFrame or the DataFrame itself.  All other possibilities will
+                        result in this function raising an error
+    :param id_str: Used for logging / error-reporting to identify the data being read / checked
+
+    :raises RuntimeError: If possible_df is not a string or pd.DataFrame
+
+    :return pd.DataFrame: Returns a DataFrame
+    """
+
+    # If this is (presumably) a filename, read in the file
+    if isinstance(possible_df, str):
+        logging.info("Reading in %s file: %s", id_str, possible_df)
+        possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
+    # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
+    elif not isinstance(sumstats[pop_name], pd.DataFrame):
+        raise RuntimeError("ERROR: Either pass in filename or DataFrame for %s rather than [%s]" %
+                           (id_str, type(possible_df)))
+
+    return possible_df
+
+
+def mama_pipeline(sumstats, ldscores, iargs):
     """
     Runs the steps in the overall MAMA pipeline
 
     :param iargs: Internal namespace object that holds both parsed values of input arguments and
                   derived / intermediate values for this program
     """
+
+    # If LD scores arent read in, do that
+    # If LD scores arent QCed yet, do that
+    # Harmonize!
+    # LD Score Regression
+    # Calculate Omega and Sigma
+    # MAMA Method
+
+    # Check / read in LD scores and then QC
+    ldscores = obtain_df(ldscores, "LD scores")
+    # TODO(jonbjala) QC LD scores (should probably use sumstats.keys() minimally)
+
+    # Check / read in summary stats and then QC
+    for pop_name in sumstats.keys():
+        # Read in if necessary (and update dictionary)
+        sumstats[pop_name] = obtain_df(sumstats[pop_name], pop_name)
+
+        # QC summary stats (along with some light validation and some logging of drops)
+        pop_df = sumstats[pop_name]
+        # TODO(jonbjala) Fix this call
+        process_sumstats(pop_df, column_map, re_expr_map, req_std_cols, filters,
+                         filt_descriptions)
+
+    # def process_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = None,
+    #                          re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
+    #                          req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
+    #                          filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
+    #                          filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
+
+
+    # Harmonize the summary stats and LD scores
+    harmonize_all(sumstats, ldscores)
+
+    # Move summary statistic data into arrays to allow for vectorized operations
+    num_pops = len(sumstats)
+    # TODO(jonbjala)
+
+    # Run LD score regressions
+    ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr)
+
+    # TODO(jonbjala) Log
+
+    # Calculate Omegas and Sigmas
+    omega = create_omega_matrix(ldscore_arr, ld_coef)
+    # TODO(jonbjala) Log
+    sigma = create_sigma_matrix(se_arr, se2_coef, const_coef)
+    # TODO(jonbjala) Log
+
+    # Run the MAMA method
+    results = run_mama_method(beta_arr, omega, sigma)
+
+    return results
 
 
 ParserFunc = Callable[[str], argp.ArgumentParser]

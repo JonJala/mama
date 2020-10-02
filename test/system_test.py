@@ -31,54 +31,56 @@ def test_1(temp_test_dir, request):
 
 #===================================================================================================
 # read_and_qc_sumstats
-# TODO(jonbjala) Like unit tests, wrap in a class?
 
-def test__read_and_qc_sumstats__invalid_rows__expected_drops():
-    """
-    Test the reading in and QCing of summary stats.  Uses precanned fake summary stats with
-    various rows containing conditions that should be filtered out.  Uses default values for
-    all optional parameters.
-    """
-    ss_file = "sumstats_filtertest.txt"
-    ss_full_filepath = os.path.join(data_directory, ss_file)
+class TestProcessSumstats:
 
-    df = mama2.read_and_qc_sumstats(ss_full_filepath)
+    def test__invalid_rows__expected_drops(self):
+        """
+        Test the reading in and QCing of summary stats.  Uses precanned fake summary stats with
+        various rows containing conditions that should be filtered out.  Uses default values for
+        all optional parameters.
+        """
+        ss_file = "sumstats_filtertest.txt"
+        ss_full_filepath = os.path.join(data_directory, ss_file)
 
-    res_col = next(c for c in df.columns if "keep" in c)
-    num_keeps = int(next(token for token in res_col.split("_") if token.isnumeric()))
+        orig_df = mama2.obtain_df(ss_full_filepath, "SS")
 
-    assert len(df) == num_keeps
-    assert all(~df[res_col].str.contains("Drop"))
-    assert all(df[res_col].str.contains("Keep"))
+        df = mama2.process_sumstats(orig_df)
 
+        res_col = next(c for c in df.columns if "keep" in c)
+        num_keeps = int(next(token for token in res_col.split("_") if token.isnumeric()))
 
-def test__read_and_qc_sumstats__various_file_seps__same_results():
-    """
-    TODO(jonbjala)
-    """
-    pass
+        assert len(df) == num_keeps
+        assert all(~df[res_col].str.contains("Drop"))
+        assert all(df[res_col].str.contains("Keep"))
 
 
-def test__read_and_qc_sumstats__alt_filters__expected_results():
-    """
-    TODO(jonbjala)
-    """
-    pass
+    def test__various_file_seps__same_results(self):
+        """
+        TODO(jonbjala)
+        """
+        pass
 
 
-def test__read_and_qc_sumstats__alt_colnames_filters__expected_results():
-    """
-    TODO(jonbjala)
-    """
-    pass
+    def test__alt_filters__expected_results(self):
+        """
+        TODO(jonbjala)
+        """
+        pass
 
 
-def test__read_and_qc_sumstats__specify_col_map__expected_results():
-    """
-    TODO(jonbjala)
-    """
-    pass
+    def test__alt_colnames_filters__expected_results(self):
+        """
+        TODO(jonbjala)
+        """
+        pass
 
+
+    def test__specify_col_map__expected_results(self):
+        """
+        TODO(jonbjala)
+        """
+        pass
 
 
 #===================================================================================================
