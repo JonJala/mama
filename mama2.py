@@ -44,7 +44,7 @@ MAMA_RE_EXPR_MAP = {
     BP_COL : '.*BP.*',
     CHR_COL : '.*CHR.*',
     BETA_COL : '.*BETA.*',
-    FREQ_COL : '.*FREQ.*',
+    FREQ_COL : '.*FREQ.*|.*FRQ.*',
     SE_COL : '.*SE.*',
     A1_COL : '.*A1.*',
     A2_COL : '.*A2.*',
@@ -136,6 +136,10 @@ MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
 ####################################################################################################
 
 # Functions and Classes #############
+
+AncestryId = Any
+PhenotypeId = Any
+PopulationId = Tuple[AncestryId, PhenotypeId]
 
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
     """
@@ -316,7 +320,8 @@ def flip_alleles(df: pd.DataFrame, flip_indices: pd.Series):
     df.loc[flip_indices, [A1_COL, A2_COL]] = df.loc[flip_indices, [A2_COL, A1_COL]].values
 
 
-def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, pd.DataFrame]=()
+def standardize_all_sumstats(sumstats: Dict[PopulationId, pd.DataFrame],
+                             ref: Tuple[Any, pd.DataFrame]=()
                              ) -> Tuple[Any, pd.Series, pd.Series, Dict[Any, pd.Series]]:
     """
     Takes a set of summary statistics and standardizes them according to a reference set.  This will
@@ -324,7 +329,7 @@ def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, 
     that are reference allele-flipped, and keep track of the rest.  If a reference isn't included,
     one of the populations from the sumstats input parameter will be chosen.
 
-    :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
+    :param sumstats: Dictionary mapping a population id to a DataFrame holding the summary
                      stat information.  The DFs should all have been QCed already and should all
                      match SNP lists exactly.
     :param ref: Reference DataFrame (used as a source of ground truth for major/minor alleles)
@@ -344,7 +349,7 @@ def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, 
 
     # Determine reference population name and DataFrame (if not supplied just designate one)
     ref = ref if ref else ss_pops[0]
-    ref_popname = ref[0]
+    ref_popid = ref[0]
     ref_df = ref[1]
 
 
@@ -372,7 +377,7 @@ def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, 
     drop_dict = {}
     ref_flip_dict = {}
     cumulative_drop_indices = pd.Series(data=np.full(len(ref_df), False), index=ref_df.index)
-    for pop_name, pop_df in ss_pops:
+    for pop_id, pop_df in ss_pops:
         # Run the filters to determine which SNPs match (and which match aside from ref allele flip)
         keep_indices, filt_indices = run_filters(pop_df, allele_filts)
 
@@ -381,25 +386,25 @@ def standardize_all_sumstats(sumstats: Dict[Any, pd.DataFrame], ref: Tuple[Any, 
         flip_indices = filt_indices["allele_ref_swap"]
 
         # Save off the required information
-        drop_dict[pop_name] = drop_indices
-        ref_flip_dict[pop_name] = flip_indices
+        drop_dict[pop_id] = drop_indices
+        ref_flip_dict[pop_id] = flip_indices
         cumulative_drop_indices |= drop_indices
 
         # Flip the SNPs that need to be flipped
         flip_alleles(pop_df, flip_indices)
 
 
-    return ref_popname, cumulative_drop_indices, drop_dict, ref_flip_dict
+    return ref_popid, cumulative_drop_indices, drop_dict, ref_flip_dict
 
 
 # TODO(jonbjala) If this can be expressed as filters, then this could just call filter_sumstats()
-def harmonize_all(sumstats: Dict[Any, pd.DataFrame], ldscores: pd.DataFrame):
+def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame):
     """
     Does the harmonization between the QC'ed input summary statistics and the LD scores.  The
     DataFrames are all modified in place (SNPs/rows dropped and reference alleles transformed
     as needed), and all inputs are expected to have indices = SNP ID (beginning with "rs")
 
-    :param sumstats: Dictionary mapping a population name to a DataFrame holding the summary
+    :param sumstats: Dictionary mapping a population id to a DataFrame holding the summary
                      stat information.  The DFs should all have been QCed already.
     :param ldscores: DataFrame of LD score information
     """
@@ -408,17 +413,17 @@ def harmonize_all(sumstats: Dict[Any, pd.DataFrame], ldscores: pd.DataFrame):
     snp_intersection = intersect_snp_lists(sumstats, ldscores)
 
     # Reduce each DF down to the SNP intersection TODO(jonbjala) Add logging / reporting, tally of drops, etc
-    for pop_name, pop_df in sumstats.items():
+    for pop_id, pop_df in sumstats.items():
         snps_to_drop = pop_df.index.difference(snp_intersection)
         pop_df.drop(snps_to_drop, inplace=True)
     snps_to_drop = ldscores.index.difference(snp_intersection)
     ldscores.drop(snps_to_drop, inplace=True)
 
     # Standardize alleles in the summary statistics
-    ref_popname, drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)
+    ref_popid, drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)
 
     # Drop SNPs where there was an unfixable major/minor allele mismatch
-    for pop_name, pop_df in sumstats.items():
+    for pop_id, pop_df in sumstats.items():
         pop_df.drop(pop_df.index[drop_indices], inplace=True)
 
     # TODO(jonbjala) Log dropped SNPs (at least a total)
@@ -594,14 +599,14 @@ def process_sumstats(initial_df: pd.DataFrame,
     # Log the top portion of the dataframe at debug level
     logging.debug("First set of rows from initial reading of summary stats:\n%s", initial_df.head())
 
-    # Either generate column map or validate the one passed in (if one was passed in)
-    if column_map:
-        missing_req_cols = req_std_cols - set(column_map.keys())
-        if missing_req_cols:
-            raise RuntimeError("Required columns (%s) missing from column mapping: %s" %
-                               (missing_req_cols, column_map))
-    else:
+    # Generate column map if necessary and then validate
+    if not column_map:
         column_map = determine_column_mapping(initial_df.columns.to_list(), re_expr_map)
+    missing_req_cols = req_std_cols - set(column_map.values())
+    if missing_req_cols:
+        raise RuntimeError("Required columns (%s) missing from column mapping: %s" %
+                               (missing_req_cols, column_map))
+
 
     # Run QC on the df
     qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filters, column_map)
@@ -852,7 +857,55 @@ def run_mama_method(harm_betas, omega, sigma):
     print("JJ:\n", new_beta_ses.shape)
 
 
-def obtain_df(possible_df: Any, id_str: str) -> pd.DataFrame:
+
+def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame,
+                      ordering: List[PopulationId] = None) -> pd.DataFrame:
+    """
+    Function that gathers data from DataFrames (betas, ses, etc.) into ndarrays for use in
+    vectorized processing
+
+    :param sumstats: Dictionary of population identifier -> DataFrame
+    :param ldscores: DataFrame for the LD scores
+    :param ordering: Optional parameter indicating the order in which populations should be arranged
+                     (if not specified, the ordering of the sumstats dictionary keys will be used)
+
+    :return Tuple[np.ndArray, np.ndArray, np.ndArray]: Betas (MxP), SEs (MxP), and LD scores (MxPxP)
+    """
+
+    # Make sure ordering is specified
+    if not ordering:
+        ordering = list(sumstats.keys())
+
+    # Move summary statistic data into arrays to allow for vectorized operations
+    #   1) Gather important numbers to use for shapes and dimensions
+    num_pops = len(sumstats)
+    num_snps = len(ldscores)
+    #   2) Create empty arrays so the memory can be allocated all at once
+    beta_arr = np.zeros((num_snps, num_pops))
+    se_arr = np.zeros((num_snps, num_pops))
+    ldscore_arr = np.zeros((num_snps, num_pops, num_pops))
+    #   3) Copy data into place
+    for pop_num, pop_id in enumerate(ordering):
+        pop_df = sumstats[pop_id]
+        ancestry_id = pop_id[0]
+
+        beta_arr[:, pop_num] = pop_df[BETA_COL].to_numpy()
+        se_arr[:, pop_num] = pop_df[SE_COL].to_numpy()
+
+        # For LD scores, need to iterate through populations a second time to process pairs
+        for second_pop_num, second_pop_id in enumerate(ordering):
+            second_ancestry_id = second_pop_id[0]
+
+            ldscore_col_name = "%s_%s" % (ancestry_id, second_ancestry_id)
+            if ldscore_col_name not in ldscores.columns:
+                ldscore_col_name = "%s_%s" % (second_ancestry_id, ancestry_id)
+
+            ldscore_arr[:, pop_num, second_pop_num] = ldscores[ldscore_col_name].to_numpy()
+
+    return beta_arr, se_arr, ldscore_arr
+
+
+def obtain_df(possible_df: Any, id_val: Any) -> pd.DataFrame:
     """
     Small helper function that handles functionality related to reading in a DataFrame
 
@@ -868,63 +921,86 @@ def obtain_df(possible_df: Any, id_str: str) -> pd.DataFrame:
 
     # If this is (presumably) a filename, read in the file
     if isinstance(possible_df, str):
-        logging.info("Reading in %s file: %s", id_str, possible_df)
+        logging.info("Reading in %s file: %s", id_val, possible_df)
         possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(sumstats[pop_name], pd.DataFrame):
         raise RuntimeError("ERROR: Either pass in filename or DataFrame for %s rather than [%s]" %
-                           (id_str, type(possible_df)))
+                           (id_val, type(possible_df)))
 
     return possible_df
 
 
-def mama_pipeline(sumstats, ldscores, iargs):
+def qc_ldscores(ldscores_df: pd.DataFrame):
+    """
+    Runs QC steps on LD scores.  This will be much lighter-weight than what is done on summary
+    statistics, as it assumes that the LD score file was generated using this software.
+
+    :param ldscores_df: Dataframe holding ldscores
+
+    :return pd.DataFrame: DataFrame containing the QC'ed LD scores
+    """
+    # Make copy of the dataframe (this copy will be modified)
+    df = ldscores_df.copy()
+
+    # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
+    df[SNP_COL] = df[SNP_COL].str.lower()
+
+    # Set SNP column to be the index and sort
+    df.set_index(SNP_COL, inplace=True)
+    df.sort_index(inplace=True)
+
+    return df
+
+
+# TODO(jonbjala) Fix return and function description
+def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
+                  column_maps: Dict[PopulationId, Dict[str, str]] = {},
+                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP) -> np.ndarray:
     """
     Runs the steps in the overall MAMA pipeline
 
-    :param iargs: Internal namespace object that holds both parsed values of input arguments and
-                  derived / intermediate values for this program
+    :param sumstats: Dictionary of population identifier -> filename or DataFrame
+    :param ldscores: Filename or DataFrame for the LD scores
+    :param column_maps: Dictionary containing any column mappings indexed by population identifier
+                        (same as used for sumstats parameter).  If none exists, the re_expr_map
+                        will be used to determine column mappings
+    :param re_expr_map: Regular expressions used to map column names to standard columns
+
+    :return : TODO(jonbjala)
     """
 
-    # If LD scores arent read in, do that
-    # If LD scores arent QCed yet, do that
-    # Harmonize!
-    # LD Score Regression
-    # Calculate Omega and Sigma
-    # MAMA Method
+    # Initial validation
+    # TODO(jonbjala)
 
     # Check / read in LD scores and then QC
     ldscores = obtain_df(ldscores, "LD scores")
+    ldscores = qc_ldscores(ldscores)
     # TODO(jonbjala) QC LD scores (should probably use sumstats.keys() minimally)
 
     # Check / read in summary stats and then QC
-    for pop_name in sumstats.keys():
+    for pop_id in sumstats.keys():
         # Read in if necessary (and update dictionary)
-        sumstats[pop_name] = obtain_df(sumstats[pop_name], pop_name)
+        sumstats[pop_id] = obtain_df(sumstats[pop_id], str(pop_id) + " sumstats")
 
         # QC summary stats (along with some light validation and some logging of drops)
-        pop_df = sumstats[pop_name]
-        # TODO(jonbjala) Fix this call
-        process_sumstats(pop_df, column_map, re_expr_map, req_std_cols, filters,
-                         filt_descriptions)
-
-    # def process_sumstats(full_gwasfile_path: str, column_map: Dict[str, str] = None,
-    #                          re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
-    #                          req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
-    #                          filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
-    #                          filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
-
+        pop_df = sumstats[pop_id]
+        col_map = column_maps.get(pop_id, None)  # If a column map exists for this pop, use that
+        sumstats[pop_id] = process_sumstats(pop_df, col_map, re_expr_map, MAMA_REQ_STD_COLS,
+                                            MAMA_STD_FILTERS, MAMA_STD_FILT_DESC)
 
     # Harmonize the summary stats and LD scores
     harmonize_all(sumstats, ldscores)
 
-    # Move summary statistic data into arrays to allow for vectorized operations
-    num_pops = len(sumstats)
-    # TODO(jonbjala)
+    # Copy values to numpy ndarrays to use in vectorized processing
+    beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
+    # TODO(jonbjala) Maybe delete DataFrames at this point since they are no longer needed?, might need to save off pop_ids
 
     # Run LD score regressions
     ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr)
-
+    print("JJ: ld_coef\n", ld_coef)
+    print("JJ: const_coef\n", const_coef)
+    print("JJ: se2_coef\n", se2_coef)
     # TODO(jonbjala) Log
 
     # Calculate Omegas and Sigmas

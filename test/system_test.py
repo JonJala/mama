@@ -40,7 +40,7 @@ class TestProcessSumstats:
         various rows containing conditions that should be filtered out.  Uses default values for
         all optional parameters.
         """
-        ss_file = "sumstats_filtertest.txt"
+        ss_file = "sumstats_filter/data.txt"
         ss_full_filepath = os.path.join(data_directory, ss_file)
 
         orig_df = mama2.obtain_df(ss_full_filepath, "SS")
