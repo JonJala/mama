@@ -12,3 +12,6 @@
 
 # Ignore .nfs files
 .nfs*
+
+# Ignore .bak files
+*.bak

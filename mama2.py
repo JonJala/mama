@@ -164,6 +164,38 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                            help="TODO(jonbjala)")
 
     # TODO(jonbjala)
+    """
+    Options / Flags: (ignore LD score creation options for now)
+
+    1) Internal processing using standardized units or not (inputs and outputs always in allele count)
+
+    2) Inputs = gwas files, ancestry and phenotype names (each gwas needs to be associated with one of each of those),
+                LD score file, (LD score regression coefs?)
+
+    3) RE to either add or replace column matching with (use RE?  or just wildcarding?)
+
+    4) options dealing with intermediate outputs (harmonized GWAS??  LD regression coefficients?)
+
+    5) Out prefix
+
+    6) log level
+
+    7) LD score regression options (???)
+
+    8) Turn on/off sumstat QC filters??
+
+    Outputs:
+
+    1) How to report betas and SEs
+
+    2) Log file
+
+    3) Need to report reference allele information?
+
+    4) What should go to terminal / log file in terms of actual results?  (averages of omega / sigma / etc?)
+
+    """
+
 
     return parser
 
@@ -397,7 +429,6 @@ def standardize_all_sumstats(sumstats: Dict[PopulationId, pd.DataFrame],
     return ref_popid, cumulative_drop_indices, drop_dict, ref_flip_dict
 
 
-# TODO(jonbjala) If this can be expressed as filters, then this could just call filter_sumstats()
 def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame):
     """
     Does the harmonization between the QC'ed input summary statistics and the LD scores.  The
@@ -774,7 +805,7 @@ def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
     return result_matrix
 
 
-def run_mama_method(harm_betas, omega, sigma):
+def run_mama_method(betas, omega, sigma):
     """
     Runs the core MAMA method to combine results and generate final, combined summary statistics
 
@@ -782,7 +813,7 @@ def run_mama_method(harm_betas, omega, sigma):
     :param omega: TODO(jonbjala)
     :param sigma: TODO(jonbjala)
 
-    :return: TODO(jonbjala)
+    :return Tuple[np.ndarray, np.ndarray]: Resulting betas and standard errors # TODO(jonbjala) need to include drops
     """
 
     # TODO(jonbjala) Remove printouts, add positive (semi-)def checks and needed processing, dropping some SNPs
@@ -790,72 +821,41 @@ def run_mama_method(harm_betas, omega, sigma):
     # Get values for M and P (used to keep track of slices / indices / broadcasting)
     M = omega.shape[0]
     P = omega.shape[1]
-    print("\nJJ: omega\n", omega)
-    print("JJ: \n", omega.shape)
+
     # Create a 3D matrix, M rows of Px1 column vectors with shape (M, P, 1)
     d_indices = np.arange(P)
     omega_diag = omega[:, d_indices, d_indices][:, :, np.newaxis]
-    print("\nJJ: omega_diag\n", omega_diag)
-    print("JJ:\n", omega_diag.shape)
     omega_pp_scaled = np.divide(omega, omega_diag)  # Slice rows are Omega'_pjj / omega_pp,j
-    print("\nJJ: omega_pp_scaled\n", omega_pp_scaled)
-    print("JJ: \n", omega_pp_scaled.shape)
 
     # Produce center matrix in steps (product of omega terms, add omega and sigma, then invert)
     center_matrix_inv = -omega_pp_scaled[:, :, :, np.newaxis] * omega[:, :, np.newaxis, :]
-    print("\nJJ: omega_outer_prod\n", center_matrix_inv)
-    print("JJ: \n", center_matrix_inv.shape)
     center_matrix_inv += omega[:, np.newaxis, :, :] + sigma[:, np.newaxis, :, :] # Broadcast add
-    print("\nJJ: omega_outer_prod+omega+sigma\n", center_matrix_inv)
-    print("JJ: \n", center_matrix_inv.shape)
     center_matrix = np.linalg.inv(center_matrix_inv) # Inverts each slice separately
     del center_matrix_inv; gc.collect() # Clean up the inverse matrix to free space
-    print("\nJJ: center_matrix\n", center_matrix)
-    print("JJ: \n", center_matrix.shape)
 
     # Calculate (Omega'_p,j/omega_pp,j) * center_matrix
     left_product = np.matmul(omega_pp_scaled[:, :, np.newaxis, :], center_matrix)
     del center_matrix; gc.collect() # Clean up the center matrix to free space
-    print("\nJJ: left_product\n", left_product)
-    print("JJ: \n", left_product.shape)
 
     # Calculate denominator (M x P x 1 x 1)
     denom = np.matmul(left_product,
                       np.transpose(omega_pp_scaled[:, :, np.newaxis, :], (0, 1, 3, 2)))
-    # print("\nJJ: denom prod\n", denom)
-    # print("JJ:\n", denom.shape)
     denom_recip = np.reciprocal(denom)
-    # print("\nJJ: denom \n", denom)
-    # print("JJ:\n", denom.shape)
     denom_recip_view = denom_recip.view()
     denom_recip_view.shape = (M, P)
-    print("\nJJ: denom_recip_view \n", denom_recip_view)
-    print("JJ:\n", denom_recip_view.shape)
 
     # Calculate numerator (M x P x 1 x 1))
     left_product_view = left_product.view()
     left_product_view.shape = (M, P, P)
-    print("\nJJ: left_product_view\n", left_product_view)
-    print("JJ: \n", left_product_view.shape)
-    harm_betas_t = harm_betas[:,:,np.newaxis]
-    print("\nJJ: harm_betas \n", harm_betas)
-    print("JJ:\n", harm_betas.shape)
-    numer = np.matmul(left_product_view, harm_betas[:,:,np.newaxis])
-    print("\nJJ: numer\n", numer)
-    print("JJ:\n", numer.shape)
+    numer = np.matmul(left_product_view, betas[:,:,np.newaxis])
     numer_view = numer.view()
     numer_view.shape = (M, P)
-    print("\nJJ: numer_view\n", numer_view)
-    print("JJ:\n", numer_view.shape)
 
+    # Calculate result betas and standard errors
     new_betas = denom_recip_view * numer_view
     new_beta_ses = np.sqrt(denom_recip_view)
 
-    print("\nJJ: new_betas\n", new_betas)
-    print("JJ:\n", new_betas.shape)
-    print("\nJJ: new_beta_ses\n", new_beta_ses)
-    print("JJ:\n", new_beta_ses.shape)
-
+    return new_betas, new_beta_ses
 
 
 def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame,
@@ -953,10 +953,104 @@ def qc_ldscores(ldscores_df: pd.DataFrame):
     return df
 
 
-# TODO(jonbjala) Fix return and function description
+def qc_sigma(sigma: np.ndarray) -> np.ndarray:
+    """
+    Runs checks over the sigma matrices for positive-definiteness.  Returns an array of length M
+    (where M = number of SNPs) along the SNP axis (the first dimension of the MxPxP sigma)
+    where True indicates positive definiteness and False indicates non-positive definiteness
+
+    :param sigma: MxPxP matrix for Sigma values
+
+    :return np.ndarray: Array of length M where True indicates positive definiteness and False
+                        indicates non-positive definiteness
+    """
+
+    # Create result vector of length M, all values defaulting to False
+    M = sigma.shape[0]
+    result = np.full(M, False)
+
+    # Iterate over the M PxP matrices of sigma
+    for i in range(M):
+        sigma_slice = sigma[i, :, :]
+        try:
+            np.linalg.cholesky(sigma_slice)
+            result[i] = True
+        except np.linalg.LinAlgError as e:
+            # If not positive definite, then the Cholesky decomposition raises a LinAlgError
+            pass
+
+    return result
+
+
+def tweak_omega(omega_slice: np.ndarray) -> np.ndarray:
+    """
+    Tweaks the off-diagonal elements of a non positive semi-definite omega matrix to make it
+    positive semi-definite.  This assumes that necessary checks are done ahead of time to ensure
+    this method will converge (e.g. all diagonal elements must be positive)
+
+    :param omega_slice: PxP symmetric Omega matrix
+
+    :return np.ndarray: A modified omega that is now positive semi-definite
+    """
+
+    # First get the component-wise square root of the diagonal
+    omega_diag = np.diag(omega_slice).copy()
+    omega_sqrt_diag = np.sqrt(omega_diag)
+
+    # Clamp off diagonal elements to values based on product of the corresponding diagonal entries
+    omega_slice = np.minimum(np.outer(omega_sqrt_diag, omega_sqrt_diag), omega_slice)
+
+    # Then, scale down off-diagonal elements until positive semi-definite
+    d_indices = np.diag_indices_from(omega_slice)
+    while np.any(np.linalg.eigvalsh(omega_slice) < 0.0):
+        omega_slice *= 0.99
+        omega_slice[d_indices] = omega_diag
+
+    return omega_slice
+
+
+def qc_omega(omega: np.ndarray) -> np.ndarray:
+    """
+    Runs checks over the omega matrices for positive-semi-definiteness.  Tweaks omega where possible
+    to correct for non-positive-semi-definiteness and returns an array of length M
+    (where M = number of SNPs) along the SNP axis (the first dimension of the MxPxP omega)
+    where True indicates positive semi-definiteness and False indicates
+    non-positive semi-definiteness
+
+    :param omega: MxPxP matrix for Omega values
+
+    :return np.ndarray: Array of length M where True indicates positive semi-definiteness and False
+                        indicates non-positive semi-definiteness
+    """
+
+    # Create result vector of length M, all values defaulting to False
+    M = omega.shape[0]
+    result = np.full(M, False)
+
+    # Iterate over the M PxP matrices of sigma
+    for i in range(M):
+        omega_slice = omega[i, :, :]
+
+        # Check for positive semi-definiteness (if PSD, set to True and move on)
+        if np.all(np.linalg.eigvalsh(omega_slice) >= 0.0):
+            result[i] = True
+            continue
+
+        # If diagonal entries aren't positive, move on
+        if np.any(np.diag(omega_slice) <= 0.0):
+            continue
+
+        # We can try to tweak ths slice of omega to become positive semi-definite
+        omega_slice = tweak_omega(omega_slice)
+        result[i] = True
+
+    return result
+
+
+# TODO(jonbjala) Allowing specifying population order?
 def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
-                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP) -> np.ndarray:
+                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP) -> Tuple[np.ndarray, np.ndarray]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -967,7 +1061,11 @@ def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
                         will be used to determine column mappings
     :param re_expr_map: Regular expressions used to map column names to standard columns
 
-    :return : TODO(jonbjala)
+    :return Tuple[np.ndarray, np.ndarray]: Tuple containing
+                                               1) Result betas
+                                               2) Result standard errors on the betas
+                                               3) Array indicating True where SNPs were effectively
+                                                  dropped due to invalid sigma / omega matrices
     """
 
     # Initial validation
@@ -998,21 +1096,25 @@ def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
 
     # Run LD score regressions
     ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr)
-    print("JJ: ld_coef\n", ld_coef)
-    print("JJ: const_coef\n", const_coef)
-    print("JJ: se2_coef\n", se2_coef)
+
     # TODO(jonbjala) Log
 
     # Calculate Omegas and Sigmas
     omega = create_omega_matrix(ldscore_arr, ld_coef)
-    # TODO(jonbjala) Log
     sigma = create_sigma_matrix(se_arr, se2_coef, const_coef)
-    # TODO(jonbjala) Log
+
+    # Check omega and sigma for validity based on positive (semi-)definiteness
+    omega_valid = qc_omega(omega).reshape((omega.shape[0], 1, 1))
+    sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
+    omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
 
     # Run the MAMA method
-    results = run_mama_method(beta_arr, omega, sigma)
+    # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy
+    new_betas, new_beta_ses = run_mama_method(beta_arr,
+                              np.where(omega_sigma_drops, np.identity(omega.shape[1]), omega),
+                              np.where(omega_sigma_drops, np.identity(sigma.shape[1]), sigma))
 
-    return results
+    return new_betas, new_beta_ses, omega_sigma_drops
 
 
 ParserFunc = Callable[[str], argp.ArgumentParser]

@@ -1083,3 +1083,76 @@ class TestCollateDfValues:
         assert np.allclose(ld_arr_1, ld_arr_3[:, ::-1, ::-1])
 
     # TODO(jonbjala) Need to test a "mixed" case where there are multiple ancestries and phenotypes
+
+
+###########################################
+
+class TestQcSigma:
+
+    #########
+    @pytest.mark.parametrize("sigma, expected",
+        [
+            (
+                [[[1, 0], [0, 1]], [[2, 1], [1, 2]], [[3, 0], [0, 3]]],
+                [True, True, True]
+            ),
+            (
+                [[[2, -1, 0], [-1, 2, -1], [0, -1, 2]],
+                 [[-2, -1, 0], [-1, -2, -1], [0, -1, -2]],
+                 [[1, 0, 0], [0, 1, 0], [0, 0, 1]]],
+                [True, False, True]
+            )
+        ])
+    # TODO(jonbjala) Add a few more cases?
+    def test__varying_sigma_slices__return_expected(self, sigma, expected):
+        sigma_arr = np.array(sigma)
+        expected_arr = np.array(expected)
+
+        result_arr = mama2.qc_sigma(sigma_arr)
+
+        assert np.array_equal(result_arr, expected_arr)
+
+
+###########################################
+
+class TestQcOmega:
+
+    #########
+    @pytest.mark.parametrize("omega, expected",
+        [
+            (
+                [[[1, 0], [0, 1]], [[2, 1], [1, 2]], [[3, 0], [0, 3]]],
+                [True, True, True]
+            ),
+            (
+                [[[2, -1, 0], [-1, 2, -1], [0, -1, 2]],
+                 [[-2, -1, 0], [-1, -2, -1], [0, -1, -2]],
+                 [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                 [[2, 2, 2], [2, 1, 3], [2, 3, 2]]],
+                [True, False, True, True]
+            )
+        ])
+    # TODO(jonbjala) Add a few more cases?
+    def test__varying_omega_slices__return_expected(self, omega, expected):
+        omega_arr = np.array(omega)
+        expected_arr = np.array(expected)
+
+        result_arr = mama2.qc_omega(omega_arr)
+
+        assert np.array_equal(result_arr, expected_arr)
+
+
+###########################################
+
+class TestTweakOmega:
+
+    #########
+    @pytest.mark.parametrize("omega",
+        [
+            [[2, 2, 2], [2, 1, 3], [2, 3, 2]]
+        ])
+    # TODO(jonbjala) Add timeout to this test?  Also, add more test cases / parameters
+    def test__varying_omega__return_expected(self, omega):
+        omega_matrix = np.array(omega)
+        result = mama2.tweak_omega(omega_matrix)
+        assert np.all(np.linalg.eigvalsh(result) >= 0.0)
