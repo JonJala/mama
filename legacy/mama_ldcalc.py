@@ -6,6 +6,8 @@ This module contains functions that calculate the cross-ancestry LD scores.
 
 from __future__ import division
 from __future__ import absolute_import
+from builtins import range
+from builtins import object
 import numpy as np
 import bitarray as ba
 import logging
@@ -17,7 +19,7 @@ def block_width(args,geno_array,array_snps):
         raise ValueError('Must specify exactly one --ld-wind option')
     if args.ld_wind_snps:
         max_dist = args.ld_wind_snps
-        coords = np.array(range(geno_array.m))
+        coords = np.array(list(range(geno_array.m)))
     elif args.ld_wind_kb:
         max_dist = args.ld_wind_kb*1000
         coords = np.array(array_snps.df['BP'])[geno_array.kept_snps]
@@ -96,7 +98,7 @@ def getBlockM(coords, max_dist):
 
             block_left[i] = j
 
-        for i in reversed(range(M)):
+        for i in reversed(list(range(M))):
             while l > i and abs(coords[l] - coords[i]) > max_dist:
                 l -= 1
             block_right[i] = l
@@ -444,7 +446,7 @@ class PlinkBEDFile(__GenotypeArrayInMemory__):
         m_poly = 0
         y = ba.bitarray()
         if keep_snps is None:
-            keep_snps = range(m)
+            keep_snps = list(range(m))
         kept_snps = []
         freq = []
 

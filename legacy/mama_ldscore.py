@@ -13,6 +13,9 @@ from __future__ import division
 from __future__ import absolute_import
 from __future__ import print_function
 
+from builtins import str
+from builtins import range
+from builtins import object
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -35,8 +38,8 @@ import subprocess
 import copy
 import argparse
 
-from mmutils import mama_ldcalc as ld
-from mmutils import mama_parse as ps
+from legacy import mama_ldcalc as ld
+from legacy import mama_parse as ps
 
 __version__ = '1.0.0'
 
@@ -79,7 +82,7 @@ class Logger_to_Logging(object):
     def log(self,x):
         logging.info(x)
 
-class DisableLogger():
+class DisableLogger(object):
     '''
     For disabling the logging module when calling munge_sumstats
     '''
@@ -150,7 +153,7 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
     score_tags = [x for x in it.combinations(ances_ind,2)]
     col_list = ['_'.join(x) for x in score_tags] + ['{P}_{P}'.format(P=x) for x in ances_ind]
 
-    mama_ld_df = pd.DataFrame(index=range(len(array_snps.IDList)), columns=col_list)
+    mama_ld_df = pd.DataFrame(index=list(range(len(array_snps.IDList))), columns=col_list)
     mama_ld_flat=list()
     #mama_ld_dict=dict()
     M = dict()
@@ -744,7 +747,7 @@ def main_func(argv):
         header_sub += "Calling ./mama_ldscore.py \\\n"
         defaults = vars(parser.parse_args(''))
         opts = vars(args)
-        non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
+        non_defaults = [x for x in list(opts.keys()) if opts[x] != defaults[x]]
         options = ['--'+x.replace('_','-')+' '+str(opts[x])+' \\' for x in non_defaults]
         header_sub += '\n'.join(options).replace('True','').replace('False','')
         header_sub = header_sub[0:-1] + '\n'

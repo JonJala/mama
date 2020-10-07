@@ -6,6 +6,7 @@ This module contains functions for parsing various ldsc-defined file formats.
 
 from __future__ import division
 from __future__ import absolute_import
+from builtins import object
 import numpy as np
 import pandas as pd
 import os
