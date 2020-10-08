@@ -9,6 +9,7 @@ import collections
 import functools
 import gc
 import logging
+import os
 import re
 import sys
 from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
@@ -26,6 +27,9 @@ __version__ = '1.0.0'
 SOFTWARE_CORRESPONDENCE_EMAIL1 = "grantgoldman0@gmail.com"
 SOFTWARE_CORRESPONDENCE_EMAIL2 = "jjala.ssgac@gmail.com"
 OTHER_CORRESPONDENCE_EMAIL = "paturley@broadinstitute.org"
+
+# The default short file prefix to use for output and logs
+DEFAULT_SHORT_PREFIX = "mama"
 
 # Standard column names
 SNP_COL = 'SNP'
@@ -53,8 +57,6 @@ MAMA_RE_EXPR_MAP = {
 # Columns that MAMA requires
 MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL}
 
-
-
 # Construct useful base-pair related constant sets
 COMPLEMENT = {
 "A" : "T",
@@ -63,6 +65,10 @@ COMPLEMENT = {
 "G" : "C",
 }
 BASES = set(COMPLEMENT.keys())
+
+# Frequency filtering defaults
+DEFAULT_MAF_MIN = 0.0
+DEFAULT_MAF_MAX = 1.0  # TODO(jonbjala) Actually use these
 
 # Standard filter function description format string
 DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
@@ -106,10 +112,16 @@ MAMA_STD_FILTER_FUNCS = {
         },
     }
 
+# Separator used to pass in triples of summary stats file, ancestry, and phenotype
+# Note: Do not make this whitespace!  (it will negatively affect parsing)
+INPUT_TRIPLE_SEP = ","
 
 ####################################################################################################
 
 # Derived constants #############
+
+# Default prefix to use for output when not specified
+DEFAULT_FULL_OUT_PREFIX = "%s/%s" % (os.getcwd(), DEFAULT_SHORT_PREFIX)
 
 # Logging banner to use at the top of the log file
 HEADER = """
@@ -133,6 +145,12 @@ MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
                       in MAMA_STD_FILTER_FUNCS.items()}
 
 
+# Dictionaries that create and map argparse flags to the corresponding column affected
+MAMA_RE_REPLACE_FLAGS = {"--replace-%s-col-match" % col.lower() : col for col in MAMA_REQ_STD_COLS}
+MAMA_RE_ADD_FLAGS = {"--add-%s-col-match" % col.lower() : col for col in MAMA_REQ_STD_COLS}
+MAMA_RE_REPLACE_FLAGS_REV = {col : flag for (flag, col) in MAMA_RE_REPLACE_FLAGS.items()}
+MAMA_RE_ADD_FLAGS_REV = {col : flag for (flag, col) in MAMA_RE_ADD_FLAGS.items()}
+
 ####################################################################################################
 
 # Functions and Classes #############
@@ -140,6 +158,48 @@ MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
 AncestryId = Any
 PhenotypeId = Any
 PopulationId = Tuple[AncestryId, PhenotypeId]
+
+
+# TODO(jonbjala)
+"""
+Options / Flags: (ignore LD score creation options for now)
+
+Outputs:
+
+1) How to report betas and SEs - Look like a mock sumstats file
+
+2) Log file
+
+3) Need to report reference allele information? Yes (see 1)
+
+4) What should go to terminal / log file in terms of actual results?  (averages of omega / sigma / etc?)
+    - LD score coefs
+    - mean omega and sigma (after dropping non-pos def stuff)
+    - mean chi^2 of input and outputs
+
+
+"""
+
+
+def ss_input_tuple(s:str) -> Tuple[str, str, str]:
+    """
+    Used for parsing some inputs to this program, namely the triples used to identify summary
+    statistics files, ancestries, and phenotypes.  Whitespace is removed, but no case-changing
+    occurs.
+
+    :param s: String passed in by argparse
+
+    :return: Tuple (all strings) containing:
+                 1) summary statistics file path
+                 2) ancestry
+                 3) phenotype
+    """
+    try:
+        ss_file, ancestry, phenotype = map(lambda x: x.strip(), s.split(INPUT_TRIPLE_SEP))
+        return ss_file, ancestry, phenotype
+    except:
+        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" % s)
+
 
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
     """
@@ -149,53 +209,161 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     :return: argparse ArgumentParser
     """
+
+    # Create the initally blank parser
     parser = argp.ArgumentParser(prog=progname)
 
-    # LD Score Regression Options
-    ld_reg = parser.add_argument_group(title="LD Score Regression Specifications",
-                                       description="Options for LD Score Regression")
-    ld_reg.add_argument("--reg-files", metavar="FILE_PATH_LIST", type=str, required=True, nargs="+",
-                        help="TODO(jonbjala)")
+    # Now, add argument groups and options:
 
-    # Core MAMA Method Options
-    core_mama = parser.add_argument_group(title="Core MAMA Method Specifications",
-                                          description="Options for Core MAMA Method")
-    core_mama.add_argument("--drop-non-posdef-snps", action="store_true",
-                           help="TODO(jonbjala)")
+    # Input Options
+    in_opt = parser.add_argument_group(title="Main Input Specifications")
+    in_opt.add_argument("--sumstats", "-s", type=ss_input_tuple, nargs="+", required=True,
+                        metavar="FILE%sANCESTRY%sPHENOTYPE" % (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP),
+                        help="List of triples F%sA%sP where F is path to a summary statistics "
+                             "file, A is the name of an ancestry, and P is the name of a "
+                             "phenotype.  The ancestry is used for column lookup in the "
+                             "LD Score file (columns are expected to be of the form ANC1_ANC2, "
+                             "where ANC1 and ANC2 are ancestries.  The ancestry and phenotype "
+                             "for a given summary statistics file are used in combination as a "
+                             "unique identifier.  Currently, these are all case sensitive." %
+                             (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
+    in_opt.add_argument("--ld-scores", "--ld", "-l", type=str, required=True, metavar="FILE",
+                        help="Path to LD scores file.  Columns are assumed to be of the form "
+                             "ANC1_ANC2, where ANC1 and ANC2 are ancestries.  Matching is case "
+                             "sensitive, so these should match exactly to the ancestries passed "
+                             "in via the --sumstats flag.")
 
-    # TODO(jonbjala)
-    """
-    Options / Flags: (ignore LD score creation options for now)
+    # Output Options
+    out_opt = parser.add_argument_group(title="Output Specifications")
+    out_opt.add_argument("--out", "-o", metavar="FILE_PREFIX", type=str,
+                         help="Full prefix of output files (logs, sumstats results, etc.).  If not "
+                              "set, [current working directory]/%s = \"%s\" will be used." %
+                              (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
+    out_opt.add_argument("--out-ld-coef", action="store_true",
+                         help="If specified, MAMA will output the LD regression coefficients "
+                              "to disk.  This is useful for reference, but also in the case "
+                              "where it is desired to edit the matrices and then pass back into "
+                              "MAMA with the --reg-*-coef options below to enable more complex  "
+                              "constraints than are allowed for in the existing precanned options.")
+    out_opt.add_argument("--out-harmonized", action="store_true",
+                         help="If specified, MAMA will output harmonized summary statistics "
+                              "to disk.  This can be useful for reference and (potentially) "
+                              "debugging / troubleshooting.  This will take place after "
+                              "harmonizing all input GWAS files with each other and the LD scores.")
 
-    1) Internal processing using standardized units or not (inputs and outputs always in allele count)
+    # General Options
+    gen_opt = parser.add_argument_group(title="General Options")
+    gen_opt.add_argument("--use-standardized-units", "--std-units", action="store_true",
+                         help="This option should be specified to cause the processing done in "
+                              "MAMA to be done in standardized units.  Inputs and outputs are "
+                              "always in allele count, but internal processing can be done in "
+                              "standardized units by selecting this option (units will be "
+                              "converted to standard units before processing, and then back to "
+                              "allele count before final results are reported)")
+    #   Logging options (subgroup)
+    log_opt = gen_opt.add_mutually_exclusive_group()
+    log_opt.add_argument("--quiet", "-q", action="store_true",
+                         help="This option will cause the program to limit logging and terminal "
+                              "output to warnings and errors, reducing output compared to "
+                              "the default/standard logging mode.  It is mutually "
+                              "exclusive with the --verbose/--debug option.")
+    log_opt.add_argument("--verbose", "-v", "--debug", "-d", action="store_true",
+                           help="This option will greatly increase the logging and terminal output "
+                                "of the program compared to the default/standard logging mode.  "
+                                "This is useful for debugging and greater visibility into the "
+                                "processing that is occurring.  It is mutually exclusive with the "
+                                "--quiet option.")
 
-    2) Inputs = gwas files, ancestry and phenotype names (each gwas needs to be associated with one of each of those),
-                LD score file, (LD score regression coefs?)
+    # Regression Options
+    reg_opt = parser.add_argument_group(title="Regression Specifications",
+                                        description="Optional regression inputs / constraints")
+    #   LD score coefficient options (subgroup)
+    reg_ld_opt = reg_opt.add_mutually_exclusive_group()
+    reg_ld_opt.add_argument("--reg-ld-coef", type=str, metavar="FILE",
+                            help="Optional argument indicating the file containing the regression "
+                                 "coefficients for the LD scores.  If this is specified, this will "
+                                 "override calculation of LD score coefficients.  "
+                                 "This is mutually exclusive with other --reg-ld-* options")
+    reg_ld_opt.add_argument("--reg-ld-perf-corr", action="store_true",
+                            help="Optional argument indicating that off-diagonal elements in the "
+                                 "LD score coefficients matrix should be set to be equal to the "
+                                 "square root of the product of the associated diagonal entries.  "
+                                 "This is mutually exclusive with other --reg-ld-* options")
+    #   SE^2 coefficient options (subgroup)
+    reg_se2_opt = reg_opt.add_mutually_exclusive_group()
+    reg_se2_opt.add_argument("--reg-se2-coef", type=str, metavar="FILE",
+                             help="Optional argument indicating the file containing the regression "
+                                  "coefficients for SE^2.  If this is specified, this will "
+                                  "override calculation of SE^2 coefficients.  "
+                                  "This is mutually exclusive with other --reg-se2-* options")
+    reg_se2_opt.add_argument("--reg-se2-zero", action="store_true",
+                             help="Optional argument indicating that the SE^2 coefficients matrix "
+                                  "should be set to be all zeroes.  "
+                                  "This is mutually exclusive with other --reg-se2-* options")
+    reg_se2_opt.add_argument("--reg-se2-ident", action="store_true",
+                             help="Optional argument indicating that the SE^2 coefficients matrix "
+                                  "should be set to be the identity matrix.  "
+                                  "This is mutually exclusive with other --reg-se2-* options")
+    reg_se2_opt.add_argument("--reg-se2-diag", action="store_true",
+                             help="Optional argument indicating that the SE^2 coefficients matrix "
+                                  "should have off-diagonal elements set to zero.  "
+                                  "This is mutually exclusive with other --reg-se2-* options")
+    #   Intercept coefficient options (subgroup)
+    reg_int_opt = reg_opt.add_mutually_exclusive_group()
+    reg_int_opt.add_argument("--reg-int-coef", type=str, metavar="FILE",
+                             help="Optional argument indicating the file containing the regression "
+                                  "coefficients for the intercept.  If this is specified, this will "
+                                  "override calculation of intercept coefficients.  "
+                                  "This is mutually exclusive with other --reg-int-* options")
+    reg_int_opt.add_argument("--reg-int-zero", action="store_true",
+                             help="Optional argument indicating that the intercept coefficients "
+                                  "matrix should be set to be all zeroes.  "
+                                  "This is mutually exclusive with other --reg-int-* options")
+    reg_int_opt.add_argument("--reg-int-diag", action="store_true",
+                             help="Optional argument indicating that the intercept coefficients "
+                                  "matrix should have off-diagonal elements set to zero.  "
+                                  "This is mutually exclusive with other --reg-int-* options")
 
-    3) RE to either add or replace column matching with (use RE?  or just wildcarding?)
+    # Summary Statistics Filtering Options
+    ss_filt_opt = parser.add_argument_group(title="Summary Statistics Filtering Options",
+                                            description="Options for filtering/processing "
+                                                        "summary stats")
+    # TODO(jonbjala) Decide if this should be defaulted or just processed if specified
+    ss_filt_opt.add_argument("--freq-bounds", default=[DEFAULT_MAF_MIN, DEFAULT_MAF_MAX],
+                             nargs=2, metavar=("MIN", "MAX"), type=float,
+                             help="This option adjusts the filtering of summary statistics.  "
+                                  "Specify minimum frequency first, then maximum.  "
+                                  "Defaults to minimum of %s and maximum of %s." %
+                                  (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
+    ss_filt_opt.add_argument("--allow-non-rs", "--no-snpid-filt", action="store_true",
+                             help="This option removes the filter that drops SNPs whose IDs do not "
+                                  "begin with \"rs\" (case-insensitive)")
+    ss_filt_opt.add_argument("--allow-non-1-22-chr", "--no-chr-filt", action="store_true",
+                             help="This option removes the filter that drops SNPs whose chromosome "
+                                  "number is not in the range 1-22")
+    ss_filt_opt.add_argument("--allow-palindromic-snps", "--no-palindrome-filt", action="store_true",
+                             help="This option removes the filter that drops SNPs whose major "
+                                  "and minor alleles form a base pair (e.g. Major allele = \'G\' "
+                                  "and Minor allele = \'C\')")
+    # TODO(jonbjala) HWE option?  (need to add that filter first)
 
-    4) options dealing with intermediate outputs (harmonized GWAS??  LD regression coefficients?)
-
-    5) Out prefix
-
-    6) log level
-
-    7) LD score regression options (???)
-
-    8) Turn on/off sumstat QC filters??
-
-    Outputs:
-
-    1) How to report betas and SEs
-
-    2) Log file
-
-    3) Need to report reference allele information?
-
-    4) What should go to terminal / log file in terms of actual results?  (averages of omega / sigma / etc?)
-
-    """
-
+    # Summary Statistics Column Options
+    ss_col_opt = parser.add_argument_group(title="Summary Statistics Column Options",
+                                           description="Options for parsing summary stats columns")
+    for col in MAMA_REQ_STD_COLS:
+        col_opt_group = ss_col_opt.add_mutually_exclusive_group()
+        col_opt_group.add_argument(MAMA_RE_REPLACE_FLAGS_REV[col], metavar="RE", type=str,
+                                   help="This option replaces the default regular expression "
+                                        "\"%s\" used for matching / identifying the %s column.  "
+                                        "Use any valid Python re module string.  "
+                                        "Mutually exclusive with other --*-%s-col-match options " %
+                                        (MAMA_RE_EXPR_MAP[col], col, col.lower()))
+        col_opt_group.add_argument(MAMA_RE_ADD_FLAGS_REV[col], metavar="RE", type=str,
+                                   help="This option adds to the default regular expression "
+                                        "\"%s\" used for matching / identifying the %s column.  "
+                                        "Use any valid Python re module string."
+                                        "Mutually exclusive with other --*-%s-col-match options " %
+                                        (MAMA_RE_EXPR_MAP[col], col, col.lower()))
 
     return parser
 

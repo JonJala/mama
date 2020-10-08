@@ -1156,3 +1156,28 @@ class TestTweakOmega:
         omega_matrix = np.array(omega)
         result = mama2.tweak_omega(omega_matrix)
         assert np.all(np.linalg.eigvalsh(result) >= 0.0)
+
+
+
+###########################################
+
+class TestSSInputTuple:
+
+    #########
+    @pytest.mark.parametrize("input_string, expected",
+        [
+            ("A/File,ANC1,Pheno1", ("A/File", "ANC1", "Pheno1")),
+            ("Another/File,ANC2,P2", ("Another/File", "ANC2", "P2"))
+        ])
+    def test__happy_path__expected_results(self, input_string, expected):
+        assert mama2.ss_input_tuple(input_string) == expected
+
+    #########
+    @pytest.mark.parametrize("input_string",
+        [
+            "A/FileANC1,Pheno1",
+            "Another/FileANC2P2"
+        ])
+    def test__too_few_components__throw_error(self, input_string):
+        with pytest.raises(RuntimeError):
+            mama2.ss_input_tuple(input_string)
