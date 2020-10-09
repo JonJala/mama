@@ -2,10 +2,12 @@
 End-to-end tests of the mama2 software.  This should be run via pytest. TODO(jonbjala)
 """
 
-
+import copy
+import itertools
 import os
 import tempfile
 
+import argparse as argp
 import numpy as np
 import pandas as pd
 import pytest
@@ -151,3 +153,170 @@ class TestHarmonizeAll:
         # Make sure the LD score DF is the expected length and contains the expected SNPs
         assert len(df_ld_copy) == 3
         assert all(x in df_ld_copy.index for x in ['rs100', 'rs200', 'rs300'])
+
+#===================================================================================================
+# validate_inputs
+
+@pytest.fixture(scope="module")
+def valid_basic_pargs(temp_test_dir):
+
+    # Test parameters
+    num_anc = 3
+    num_phen = 3
+
+    # The resulting namespace that will be returned
+    pargs = argp.Namespace()
+
+    # Make sure we have an absolute path to the temporary directory
+    tmp_dir_path = os.path.abspath(temp_test_dir)
+
+    # Construct ancestry and phenotype names
+    ancestries = ["ANC" + str(a) for a in range(num_anc)]
+    phenotypes = ["PHEN" + str(p) for p in range(num_phen)]
+
+    # Create the (empty except for column names) LD Scores file
+    ldscores_filename = os.path.join(tmp_dir_path, "ldscores.txt")
+    ld_anc_cols = ["%s_%s" % anc_tuple
+                   for anc_tuple in itertools.combinations_with_replacement(ancestries, 2)]
+    ld_cols = ld_anc_cols + [mama2.SNP_COL]
+    ld_df = pd.DataFrame(columns=ld_cols)
+    ld_df.to_csv(ldscores_filename, sep="\t", index=False)
+
+    # Create the (empty except for column names) sumstats files
+    ss_files = {(anc, phen) : os.path.join(tmp_dir_path,
+                                           '%s_%s_ss.txt' % (anc.lower(), phen.lower()))
+                for anc in ancestries for phen in phenotypes}
+    ss_cols = mama2.MAMA_REQ_STD_COLS
+    ss_df = pd.DataFrame(columns=ss_cols)
+    for ss_file in ss_files.values():
+        ss_df.to_csv(ss_file, sep="\t", index=False)
+
+
+    # Set namespace attributes
+    pargs.out = os.path.join(tmp_dir_path, 'test_prefix')
+    pargs.freq_bounds = [0.0, 1.0]
+    pargs.sumstats = [(f,a,p) for ((a,p), f) in ss_files.items()]
+    pargs.ld_scores = ldscores_filename
+
+    return pargs
+
+
+class TestValidateInputs:
+
+    def test__happy_path__expected_results(self, valid_basic_pargs, temp_test_dir):
+        result = mama2.validate_inputs(valid_basic_pargs, dict())
+
+        num_ancestries = len(result[mama2.ANCESTRIES])
+
+        assert result[mama2.OUT_DIR] == temp_test_dir
+        assert result[mama2.OUT_PREFIX] == 'test_prefix'
+        assert num_ancestries > 0
+        assert result[mama2.RE_MAP] == mama2.MAMA_RE_EXPR_MAP
+
+        for attr in vars(valid_basic_pargs):
+            assert getattr(valid_basic_pargs, attr) == result[attr]
+
+
+    def test__existing_directory_conflicts_with_out_prefix__throws_error(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Make sure there is a collision between the specified out prefix and the
+        # existing temporary directory
+        n.out = os.path.dirname(n.out)
+        prefix = os.path.basename(n.out)
+
+        with pytest.raises(RuntimeError) as ex_info:
+            mama2.validate_inputs(n, dict())
+        assert prefix in str(ex_info.value)
+
+
+    def test__missing_out_directory__throws_error(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Insert bogus directory into out prefix path
+        dir_name = os.path.dirname(n.out)
+        prefix_name = os.path.basename(n.out)
+        invalid_subdir = "random_directory_abcxyz"
+        n.out = os.path.join(dir_name, "random_directory_abcxyz", prefix_name)
+
+        with pytest.raises(FileNotFoundError) as ex_info:
+            mama2.validate_inputs(n, dict())
+        assert invalid_subdir in str(ex_info.value)
+
+
+    def test__invalid_frequency_filter_range__throws_error(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set min frequency > max frequency
+        n.freq_bounds = [1.0, 0.0]
+
+        with pytest.raises(RuntimeError) as ex_info:
+            mama2.validate_inputs(n, dict())
+        assert str(n.freq_bounds[0]) in str(ex_info.value)
+        assert str(n.freq_bounds[1]) in str(ex_info.value)
+
+
+    def test__missing_ld_pair_col__throws_error(self, valid_basic_pargs, temp_test_dir):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Remove column from LD scores file
+        ld_df = pd.read_csv(n.ld_scores, sep=None, engine='python', nrows=1, comment="#")
+        ld_cols = ld_df.columns
+        ld_pair_cols = [col for col in ld_cols if "_" in col]
+
+        dropped_col = ld_pair_cols[0]
+        dropped_anc1, dropped_anc2 = dropped_col.split("_")
+        ld_df.drop([dropped_col], axis=1, inplace=True)
+        bad_ldscores_file = os.path.join(temp_test_dir, 'missing_pair_col_ldscores.txt')
+        ld_df.to_csv(bad_ldscores_file, sep="\t", index=False)
+        n.ld_scores = bad_ldscores_file
+
+        with pytest.raises(RuntimeError) as ex_info:
+            mama2.validate_inputs(n, dict())
+        assert dropped_anc1 in str(ex_info.value)
+        assert dropped_anc2 in str(ex_info.value)
+
+
+    def test__missing_ld_snp_col__throws_error(self, valid_basic_pargs, temp_test_dir):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Remove column from LD scores file
+        ld_df = pd.read_csv(n.ld_scores, sep=None, engine='python', nrows=1, comment="#")
+        ld_cols = ld_df.columns
+        ld_pair_cols = [col for col in ld_cols if "_" in col]
+
+        dropped_col = mama2.SNP_COL
+        bad_ldscores_file = os.path.join(temp_test_dir, 'missing_snp_col_ldscores.txt')
+        ld_df.drop([dropped_col], axis=1, inplace=True)
+        ld_df.to_csv(bad_ldscores_file, sep="\t", index=False)
+        n.ld_scores = bad_ldscores_file
+
+        with pytest.raises(RuntimeError) as ex_info:
+            mama2.validate_inputs(n, dict())
+        assert dropped_col in str(ex_info.value)
+
+
+    def test__add_and_replace_re__expected_results(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set some regular expressions (at least one add and at least one replace)
+        add_col = mama2.CHR_COL
+        add_re = 'XYZ'
+
+        replace_col = mama2.A1_COL
+        replace_re = '.*A1.*'
+
+        setattr(n, mama2.to_arg(mama2.MAMA_RE_ADD_FLAGS[add_col]), add_re)
+        setattr(n, mama2.to_arg(mama2.MAMA_RE_REPLACE_FLAGS[replace_col]), replace_re)
+
+        result = mama2.validate_inputs(n, dict())
+        assert result[mama2.RE_MAP][add_col] == (mama2.MAMA_RE_EXPR_MAP[add_col] + "|" + add_re)
+        assert result[mama2.RE_MAP][replace_col] == replace_re
+
+    # TODO(jonbjala) Test column mapping (SS file with missing columns)

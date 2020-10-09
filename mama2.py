@@ -8,6 +8,7 @@ import argparse as argp
 import collections
 import functools
 import gc
+import itertools
 import logging
 import os
 import re
@@ -44,14 +45,14 @@ A2_COL = 'A2'
 # Map of default regular expressions used to convert summary stat column names to standardized names
 # TODO(jonbjala) Refine these more, just use these values are placeholders for now
 MAMA_RE_EXPR_MAP = {
-    SNP_COL : '.*SNP.*',
+    SNP_COL : '.*SNP.*|.*RS.*',
     BP_COL : '.*BP.*',
     CHR_COL : '.*CHR.*',
     BETA_COL : '.*BETA.*',
-    FREQ_COL : '.*FREQ.*|.*FRQ.*',
+    FREQ_COL : '.*FREQ.*|.*FRQ.*|.*MAF.*',
     SE_COL : '.*SE.*',
-    A1_COL : '.*A1.*',
-    A2_COL : '.*A2.*',
+    A1_COL : '.*A1.*|.*MAJOR.*|.*EFFECT.*ALL.*',
+    A2_COL : '.*A2.*|.*MINOR.*|.*OTHER.*ALL.*',
 }
 
 # Columns that MAMA requires
@@ -59,10 +60,10 @@ MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_CO
 
 # Construct useful base-pair related constant sets
 COMPLEMENT = {
-"A" : "T",
-"T" : "A",
-"C" : "G",
-"G" : "C",
+    "A" : "T",
+    "T" : "A",
+    "C" : "G",
+    "G" : "C",
 }
 BASES = set(COMPLEMENT.keys())
 
@@ -77,44 +78,52 @@ DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
 MAMA_STD_FILTER_FUNCS = {
     'NO NAN' :
         {
-        'func' : lambda df: df.isnull().any(axis=1),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
+            'func' : lambda df: df.isnull().any(axis=1),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
         },
     'FREQ BOUNDS' :
         {
-        'func' : lambda df: ~df[FREQ_COL].between(0.0, 1.0),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [0.0, 1.0]"
+            'func' : lambda df: ~df[FREQ_COL].between(0.0, 1.0),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [0.0, 1.0]"
         },
     'SE BOUNDS' :
         {
-        'func' : lambda df: df[SE_COL].lt(0.0),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
+            'func' : lambda df: df[SE_COL].lt(0.0),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
         },
     'SNP PREFIX' :
         {
-        'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
+            'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
         },
     'CHR BOUNDS' :
         {
-        'func' : lambda df: ~df[CHR_COL].between(1, 22),
-        'description' : DEFAULT_FILTER_FUNC_DESC % "with listed chromosomes not in the range 1-22"
+            'func' : lambda df: ~df[CHR_COL].between(1, 22),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with listed chromosomes outside range 1-22"
         },
     'INVALID SNPS' :
         {
-        'func' : lambda df: df[A1_COL] == df[A2_COL],
-        'description' : DEFAULT_FILTER_FUNC_DESC % "with major allele = minor allele"
+            'func' : lambda df: df[A1_COL] == df[A2_COL],
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with major allele = minor allele"
         },
     'PALINDROMIC SNPS' :
         {
-        'func' : lambda df: df[A1_COL].replace(COMPLEMENT) == df[A2_COL],
-        'description' : DEFAULT_FILTER_FUNC_DESC % "where major and minor alleles are a base pair" # TODO(jonbjala) Is this description ok?
+            'func' : lambda df: df[A1_COL].replace(COMPLEMENT) == df[A2_COL],
+            'description' : DEFAULT_FILTER_FUNC_DESC % "where major / minor alleles are a base pair" # TODO(jonbjala) Is this description ok?
         },
     }
 
 # Separator used to pass in triples of summary stats file, ancestry, and phenotype
 # Note: Do not make this whitespace!  (it will negatively affect parsing)
 INPUT_TRIPLE_SEP = ","
+
+
+# Dictionary keys for internal usage
+OUT_DIR = "output_directory"
+OUT_PREFIX = "output_prefix"
+ANCESTRIES = "ancestries"
+RE_MAP = "re_map"
+COL_MAP = "col_map"
 
 ####################################################################################################
 
@@ -146,10 +155,8 @@ MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
 
 
 # Dictionaries that create and map argparse flags to the corresponding column affected
-MAMA_RE_REPLACE_FLAGS = {"--replace-%s-col-match" % col.lower() : col for col in MAMA_REQ_STD_COLS}
-MAMA_RE_ADD_FLAGS = {"--add-%s-col-match" % col.lower() : col for col in MAMA_REQ_STD_COLS}
-MAMA_RE_REPLACE_FLAGS_REV = {col : flag for (flag, col) in MAMA_RE_REPLACE_FLAGS.items()}
-MAMA_RE_ADD_FLAGS_REV = {col : flag for (flag, col) in MAMA_RE_ADD_FLAGS.items()}
+MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower() for col in MAMA_REQ_STD_COLS}
+MAMA_RE_ADD_FLAGS = {col : "add-%s-col-match" % col.lower() for col in MAMA_REQ_STD_COLS}
 
 ####################################################################################################
 
@@ -180,6 +187,40 @@ Outputs:
 
 """
 
+def reg_ex(s:str) -> str:
+    """
+    Used for parsing some inputs to this program, namely regular expressions given as input.
+    Whitespace is removed, but no case-changing occurs.
+
+    :param s: String passed in by argparse
+
+    :return str: The regular expression
+    """
+    stripped_regex = s.strip()
+    try:
+        re.compile(stripped_regex)
+    except re.error as ex:
+        raise RuntimeError("Invalid regular expression \"%s\" supplied: %s" %
+                           (stripped_regex, ex))
+
+    return stripped_regex
+
+
+def input_file(s:str) -> str:
+    """
+    Used for parsing some inputs to this program, namely filenames given as input.
+    Whitespace is removed, but no case-changing occurs.  Existence of the file is verified.
+
+    :param s: String passed in by argparse
+
+    :return str: The filename
+    """
+    stripped_file = s.strip()
+    if not os.path.exists(stripped_file):
+        raise FileNotFoundError("The input file [%s] does not exist." % stripped_file)
+
+    return stripped_file
+
 
 def ss_input_tuple(s:str) -> Tuple[str, str, str]:
     """
@@ -196,9 +237,10 @@ def ss_input_tuple(s:str) -> Tuple[str, str, str]:
     """
     try:
         ss_file, ancestry, phenotype = map(lambda x: x.strip(), s.split(INPUT_TRIPLE_SEP))
-        return ss_file, ancestry, phenotype
     except:
         raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" % s)
+
+    return input_file(ss_file), ancestry.strip(), phenotype.strip()
 
 
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
@@ -237,7 +279,8 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     out_opt = parser.add_argument_group(title="Output Specifications")
     out_opt.add_argument("--out", "-o", metavar="FILE_PREFIX", type=str,
                          help="Full prefix of output files (logs, sumstats results, etc.).  If not "
-                              "set, [current working directory]/%s = \"%s\" will be used." %
+                              "set, [current working directory]/%s = \"%s\" will be used.  "
+                              "Note: The directory specified must already exist." %
                               (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
     out_opt.add_argument("--out-ld-coef", action="store_true",
                          help="If specified, MAMA will output the LD regression coefficients "
@@ -279,7 +322,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                         description="Optional regression inputs / constraints")
     #   LD score coefficient options (subgroup)
     reg_ld_opt = reg_opt.add_mutually_exclusive_group()
-    reg_ld_opt.add_argument("--reg-ld-coef", type=str, metavar="FILE",
+    reg_ld_opt.add_argument("--reg-ld-coef", type=input_file, metavar="FILE",
                             help="Optional argument indicating the file containing the regression "
                                  "coefficients for the LD scores.  If this is specified, this will "
                                  "override calculation of LD score coefficients.  "
@@ -291,7 +334,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                  "This is mutually exclusive with other --reg-ld-* options")
     #   SE^2 coefficient options (subgroup)
     reg_se2_opt = reg_opt.add_mutually_exclusive_group()
-    reg_se2_opt.add_argument("--reg-se2-coef", type=str, metavar="FILE",
+    reg_se2_opt.add_argument("--reg-se2-coef", type=input_file, metavar="FILE",
                              help="Optional argument indicating the file containing the regression "
                                   "coefficients for SE^2.  If this is specified, this will "
                                   "override calculation of SE^2 coefficients.  "
@@ -310,10 +353,10 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "This is mutually exclusive with other --reg-se2-* options")
     #   Intercept coefficient options (subgroup)
     reg_int_opt = reg_opt.add_mutually_exclusive_group()
-    reg_int_opt.add_argument("--reg-int-coef", type=str, metavar="FILE",
+    reg_int_opt.add_argument("--reg-int-coef", type=input_file, metavar="FILE",
                              help="Optional argument indicating the file containing the regression "
-                                  "coefficients for the intercept.  If this is specified, this will "
-                                  "override calculation of intercept coefficients.  "
+                                  "coefficients for the intercept.  If this is specified, this "
+                                  "will override calculation of intercept coefficients.  "
                                   "This is mutually exclusive with other --reg-int-* options")
     reg_int_opt.add_argument("--reg-int-zero", action="store_true",
                              help="Optional argument indicating that the intercept coefficients "
@@ -341,7 +384,8 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     ss_filt_opt.add_argument("--allow-non-1-22-chr", "--no-chr-filt", action="store_true",
                              help="This option removes the filter that drops SNPs whose chromosome "
                                   "number is not in the range 1-22")
-    ss_filt_opt.add_argument("--allow-palindromic-snps", "--no-palindrome-filt", action="store_true",
+    ss_filt_opt.add_argument("--allow-palindromic-snps", "--no-palindrome-filt",
+                             action="store_true",
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
                                   "and Minor allele = \'C\')")
@@ -352,16 +396,18 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                            description="Options for parsing summary stats columns")
     for col in MAMA_REQ_STD_COLS:
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
-        col_opt_group.add_argument(MAMA_RE_REPLACE_FLAGS_REV[col], metavar="RE", type=str,
-                                   help="This option replaces the default regular expression "
-                                        "\"%s\" used for matching / identifying the %s column.  "
-                                        "Use any valid Python re module string.  "
+        col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="RE", type=reg_ex,
+                                   help="This option adds to the default (case-insenstive) "
+                                        "regular expression \"%s\" used for "
+                                        "matching / identifying the %s column.  "
+                                        "Use any valid Python re module string."
                                         "Mutually exclusive with other --*-%s-col-match options " %
                                         (MAMA_RE_EXPR_MAP[col], col, col.lower()))
-        col_opt_group.add_argument(MAMA_RE_ADD_FLAGS_REV[col], metavar="RE", type=str,
-                                   help="This option adds to the default regular expression "
-                                        "\"%s\" used for matching / identifying the %s column.  "
-                                        "Use any valid Python re module string."
+        col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="RE", type=reg_ex,
+                                   help="This option replaces the default (case-insenstive) "
+                                        "regular expression \"%s\" used for "
+                                        "matching / identifying the %s column.  "
+                                        "Use any valid Python re module string.  "
                                         "Mutually exclusive with other --*-%s-col-match options " %
                                         (MAMA_RE_EXPR_MAP[col], col, col.lower()))
 
@@ -438,9 +484,71 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
              added as calculations proceed
     """
 
-    # TODO(jonbjala)
+    # Prepare dictionary that will hold internal values for this program
+    internal_values = dict()
 
-    return dict()
+    # Validate existence of output directory (and that no conflicts exist)
+    if os.path.exists(pargs.out):
+        raise RuntimeError("The designated output prefix \"%s\" conflicts with an existing "
+                           "file or directory" % pargs.out)
+
+    out_dir = os.path.dirname(pargs.out)
+    if not os.path.exists(out_dir):
+        raise FileNotFoundError("The designated output directory [%s] does not exist." % out_dir)
+    # TODO(jonbjala) Verify directory permissions?
+
+    # Validate frequency filter bounds
+    if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
+        raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
+                           (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+
+    # Validate columns of the LD scores file
+    ld_cols = set(
+        pd.read_csv(pargs.ld_scores, sep=None, engine='python', nrows=1, comment="#").columns)
+    ancestries = {a for ss_file, a, p in pargs.sumstats}
+    anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
+    missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
+        if not("%s_%s" % anc_tuple in ld_cols or "%s_%s" % anc_tuple[::-1] in ld_cols)}
+    if missing_ld_pair_cols:
+        raise RuntimeError("The LD scores file %s is missing columns for the following "
+                           "ancestry pairs: %s" % (pargs.ld_scores, missing_ld_pair_cols))
+    if SNP_COL not in ld_cols:
+        raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
+                           (pargs.ld_scores, SNP_COL))
+
+    # Construct RE map for sumstats column matching (must be done before verifying sumstats columns)
+    re_map = MAMA_RE_EXPR_MAP.copy()
+    for req_col in MAMA_REQ_STD_COLS:
+        additional_re = getattr(pargs, to_arg(MAMA_RE_ADD_FLAGS[req_col]), None)
+        replacement_re = getattr(pargs, to_arg(MAMA_RE_REPLACE_FLAGS[req_col]), None)
+        if additional_re:
+            re_map[req_col] = "%s|%s" % (re_map[req_col], additional_re)
+        elif replacement_re:
+            re_map[req_col] = replacement_re
+
+
+    # Validate columns of all the sumstats files (via trying to map them to standard column names)
+    col_map = dict()
+    for ss_file, a, p in pargs.sumstats:
+        cols = list(pd.read_csv(ss_file, sep=None, engine='python', nrows=1, comment="#").columns)
+        try:
+            col_map[(a, p)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
+        except RuntimeError as ex:
+            raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
+                               "%s and phenotype = %s): %s" % (ss_file, a, p, ex))
+
+    # Copy attributes to the internal dictionary from parsed args
+    for attr in vars(pargs):
+        internal_values[attr] = getattr(pargs, attr)
+
+    # Set some extra values based on parsed arg values
+    internal_values[OUT_DIR] = out_dir
+    internal_values[OUT_PREFIX] = os.path.basename(pargs.out)
+    internal_values[ANCESTRIES] = ancestries
+    internal_values[RE_MAP] = re_map
+    internal_values[COL_MAP] = col_map
+
+    return internal_values
 
 
 def format_terminal_call(cmd: List[str]) -> str:
@@ -1236,13 +1344,9 @@ def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
                                                   dropped due to invalid sigma / omega matrices
     """
 
-    # Initial validation
-    # TODO(jonbjala)
-
     # Check / read in LD scores and then QC
     ldscores = obtain_df(ldscores, "LD scores")
     ldscores = qc_ldscores(ldscores)
-    # TODO(jonbjala) QC LD scores (should probably use sumstats.keys() minimally)
 
     # Check / read in summary stats and then QC
     for pop_id in sumstats.keys():
@@ -1310,7 +1414,7 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     logging.info("Program executed via:\n%s", format_terminal_call(argv))
     logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
 
-    return parsed_args, user_args
+    return parsed_args, user_args, parser
 
 
 def main_func(argv: List[str]):
@@ -1321,7 +1425,7 @@ def main_func(argv: List[str]):
     """
 
     # Perform argument parsing and program setup
-    parsed_args, user_args = setup_func(argv, get_mama_parser)
+    parsed_args, user_args, parser = setup_func(argv, get_mama_parser)
 
     # Execute the rest of the program, but catch and log exceptions before failing
     try:

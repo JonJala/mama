@@ -4,6 +4,7 @@ Unit tests of the mama2 software.  This should be run via pytest. TODO(jonbjala)
 
 import itertools
 import os
+import tempfile
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,12 @@ P_VALUES = [1, 2, 5]
 N_VAR_VALUES = [3, 4, 10]  # Some tests rely on these numbers being >= 2
 N_PTS_VALUES = [10, 100, 1000]
 N_TUPLES = [(i,j) for (i, j) in itertools.product(N_VAR_VALUES, N_PTS_VALUES) if i <= j]
+
+@pytest.fixture(scope="module")
+def temp_test_dir():
+    with tempfile.TemporaryDirectory(dir=os.getcwd()) as t:
+        yield t
+
 
 # TODO(jonbjala) Check for contents of exception messages when possible: https://docs.pytest.org/en/stable/assert.html
 
@@ -1164,20 +1171,42 @@ class TestTweakOmega:
 class TestSSInputTuple:
 
     #########
-    @pytest.mark.parametrize("input_string, expected",
-        [
-            ("A/File,ANC1,Pheno1", ("A/File", "ANC1", "Pheno1")),
-            ("Another/File,ANC2,P2", ("Another/File", "ANC2", "P2"))
-        ])
-    def test__happy_path__expected_results(self, input_string, expected):
+    def test__happy_path__expected_results(self, temp_test_dir):
+
+        ancestry = "dummy_anc"
+        phenotype = "dummy_phen"
+        filename = os.path.join(temp_test_dir, "test_ssinputtuple_file.txt")
+        with open(filename, 'w'):
+            pass
+
+        input_string = ",".join([filename, ancestry, phenotype])
+        expected = (filename, ancestry, phenotype)
         assert mama2.ss_input_tuple(input_string) == expected
 
     #########
-    @pytest.mark.parametrize("input_string",
-        [
-            "A/FileANC1,Pheno1",
-            "Another/FileANC2P2"
-        ])
-    def test__too_few_components__throw_error(self, input_string):
+    def test__too_few_components__throw_error(self, temp_test_dir):
+
+        ancestry = "dummy_anc"
+        filename = os.path.join(temp_test_dir, "test_ssinputtuple_file.txt")
+        with open(filename, 'w'):
+            pass
+
+        input_string = ",".join([filename, ancestry])
+
         with pytest.raises(RuntimeError):
             mama2.ss_input_tuple(input_string)
+
+    #########
+    def test__file_nonexistent__throw_error(self, temp_test_dir):
+
+        ancestry = "dummy_anc"
+        phenotype = "dummy_phen"
+        filename = os.path.join(temp_test_dir, "test_missing_file.txt")
+
+        input_string = ",".join([filename, ancestry, phenotype])
+
+        with pytest.raises(FileNotFoundError):
+            mama2.ss_input_tuple(input_string)
+
+
+# TODO(jonbjala) Test input_file() and input_prefix()

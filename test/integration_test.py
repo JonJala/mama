@@ -35,8 +35,8 @@ def test__two_pops_diff_ancestries_same_pheno__expected_results(request):
 
     betas, ses, omega_sigma_drops = mama2.mama_pipeline(sumstats, ldscores_full_filepath)
 
-    print("JJ: betas\n", betas)
-    print("JJ: ses\n", ses)
-    print("JJ: omega_sigma_drops\n", omega_sigma_drops)
-    assert False
+    # print("JJ: betas\n", betas)
+    # print("JJ: ses\n", ses)
+    # print("JJ: omega_sigma_drops\n", omega_sigma_drops)
+    assert True
 
