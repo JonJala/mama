@@ -149,10 +149,8 @@ HEADER = """
        OTHER_CORRESPONDENCE_EMAIL)
 
 # Filter function dictionaries (name to function mapping or description) for MAMA
-MAMA_STD_FILTERS = {fname : finfo['func'] for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
-MAMA_STD_FILT_DESC = {fname : finfo['description'] for fname, finfo
-                      in MAMA_STD_FILTER_FUNCS.items()}
-
+MAMA_STD_FILTERS = {fname : (finfo['func'], finfo['description'])
+                    for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
 
 # Dictionaries that create and map argparse flags to the corresponding column affected
 MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower() for col in MAMA_REQ_STD_COLS}
@@ -396,14 +394,14 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                            description="Options for parsing summary stats columns")
     for col in MAMA_REQ_STD_COLS:
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
-        col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="RE", type=reg_ex,
+        col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option adds to the default (case-insenstive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
                                         "Use any valid Python re module string."
                                         "Mutually exclusive with other --*-%s-col-match options " %
                                         (MAMA_RE_EXPR_MAP[col], col, col.lower()))
-        col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="RE", type=reg_ex,
+        col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option replaces the default (case-insenstive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
@@ -469,7 +467,7 @@ def get_user_inputs(argv: List[str], parsed_args: argp.Namespace) -> str:
 
     # Since any flag actually specified by the user shouldn't have been replaced by a default
     # value, one can grab the actual value from argparse without having to parse again
-    return {user_arg:getattr(parsed_args, user_arg) for user_arg in user_set_args}
+    return {user_arg : getattr(parsed_args, user_arg) for user_arg in user_set_args}
 
 
 def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
@@ -835,8 +833,6 @@ def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, st
     :return: Dictionary mapping column names in a summary stat file to standard names
     """
 
-    # TODO(jonbjala) The code for this method might be dense and not as clear as is desirable?
-
     # TODO(jonbjala) Check for case when req_cols specifies std cols not in re_expr_map.keys()?
 
     # Map input columns to set of possible standardized column matches
@@ -881,8 +877,8 @@ def process_sumstats(initial_df: pd.DataFrame,
                      column_map: Dict[str, str] = None,
                      re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
                      req_std_cols: Set[str] = MAMA_REQ_STD_COLS,
-                     filters: Dict[str, SumstatFilter] = MAMA_STD_FILTERS,
-                     filt_descriptions: Dict[str, str] = MAMA_STD_FILT_DESC) -> pd.DataFrame:
+                     filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS
+                     ) -> pd.DataFrame:
     """
     Read the specified summary statistics file into a Pandas DataFrame, and run QC steps on it,
     the most important and notable being standardizing column names and running filters to drop
@@ -894,8 +890,7 @@ def process_sumstats(initial_df: pd.DataFrame,
     :param re_expr_map: Map of standard column names to regular expressions used for matching
                         against summary stat file column names.
     :param req_std_cols: Required standard columns in the resulting DataFrame
-    :param filters: Map of filter functions used to drop undesired SNPs
-    :param filt_descriptions: Map of filter function descriptions
+    :param filters: Map of filter functions (and descriptions) used to drop undesired SNPs
 
     :raises RuntimeError: If req_std_cols contains columns not in column_map.keys()
 
@@ -916,12 +911,13 @@ def process_sumstats(initial_df: pd.DataFrame,
 
 
     # Run QC on the df
-    qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filters, column_map)
+    filter_map = {f_name : f_func for (f_name, (f_func, f_desc)) in filters.items()}
+    qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filter_map, column_map)
 
     # Log SNP drop info
     for filt_name, filt_drops in per_filt_drop_map.items():
         logging.info("Filtered out  %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
-            filt_descriptions.get(filt_name, "No description available"))
+            filters.get(filt_name, "No description available")[1])
         logging.debug("RS IDs = %s\n", initial_df[filt_drops.to_list()])
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
@@ -1326,7 +1322,9 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
 # TODO(jonbjala) Allowing specifying population order?
 def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
-                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP) -> Tuple[np.ndarray, np.ndarray]:
+                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
+                  filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS
+                  ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -1336,6 +1334,8 @@ def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
                         (same as used for sumstats parameter).  If none exists, the re_expr_map
                         will be used to determine column mappings
     :param re_expr_map: Regular expressions used to map column names to standard columns
+    :param filters: Map of filter name to a (function, description) tuple, used to filter
+                    summary statistics
 
     :return Tuple[np.ndarray, np.ndarray]: Tuple containing
                                                1) Result betas
@@ -1357,7 +1357,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
         pop_df = sumstats[pop_id]
         col_map = column_maps.get(pop_id, None)  # If a column map exists for this pop, use that
         sumstats[pop_id] = process_sumstats(pop_df, col_map, re_expr_map, MAMA_REQ_STD_COLS,
-                                            MAMA_STD_FILTERS, MAMA_STD_FILT_DESC)
+                                            filters)
 
     # Harmonize the summary stats and LD scores
     harmonize_all(sumstats, ldscores)
