@@ -213,6 +213,7 @@ class TestValidateInputs:
         assert num_ancestries > 0
         assert result[mama2.RE_MAP] == mama2.MAMA_RE_EXPR_MAP
         assert result[mama2.FILTER_MAP] == mama2.MAMA_STD_FILTERS
+        assert len(result[mama2.SUMSTATS_MAP]) == len(valid_basic_pargs.sumstats)
 
         for attr in vars(valid_basic_pargs):
             assert getattr(valid_basic_pargs, attr) == result[attr]

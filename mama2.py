@@ -138,6 +138,7 @@ ANCESTRIES = "ancestries"
 RE_MAP = "re_map"
 COL_MAP = "col_map"
 FILTER_MAP = "filter_map"
+SUMSTATS_MAP = "sumstats_map"
 
 ####################################################################################################
 
@@ -541,8 +542,10 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
 
     # Validate columns of all the sumstats files (via trying to map them to standard column names)
     col_map = dict()
+    ss_map = dict()
     for ss_file, a, p in pargs.sumstats:
         cols = list(pd.read_csv(ss_file, sep=None, engine='python', nrows=1, comment="#").columns)
+        ss_map[(a, p)] = ss_file
         try:
             col_map[(a, p)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
         except RuntimeError as ex:
@@ -573,6 +576,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     internal_values[RE_MAP] = re_map
     internal_values[COL_MAP] = col_map
     internal_values[FILTER_MAP] = filt_map
+    internal_values[SUMSTATS_MAP] = ss_map
 
     return internal_values
 
@@ -759,6 +763,7 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
         pop_df.drop(pop_df.index[drop_indices], inplace=True)
 
     # TODO(jonbjala) Log dropped SNPs (at least a total)
+
 
 def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
     """
@@ -1347,11 +1352,11 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
 
 
 # TODO(jonbjala) Allowing specifying population order?
-def mama_pipeline(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: Any,
+def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
                   re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
                   filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS
-                  ) -> Tuple[np.ndarray, np.ndarray]:
+                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -1461,7 +1466,9 @@ def main_func(argv: List[str]):
         iargs = validate_inputs(parsed_args, user_args)
 
         # Run the MAMA pipeline
-        mama_pipeline(iargs)
+        new_betas, new_beta_ses, omega_sigma_drops = mama_pipeline(
+            iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP], iargs[RE_MAP], iargs[filters])
+
 
         # Log any remaining information (like timing info?) TODO(jonbjala)
 
