@@ -212,6 +212,7 @@ class TestValidateInputs:
         assert result[mama2.OUT_PREFIX] == 'test_prefix'
         assert num_ancestries > 0
         assert result[mama2.RE_MAP] == mama2.MAMA_RE_EXPR_MAP
+        assert result[mama2.FILTER_MAP] == mama2.MAMA_STD_FILTERS
 
         for attr in vars(valid_basic_pargs):
             assert getattr(valid_basic_pargs, attr) == result[attr]
@@ -318,5 +319,56 @@ class TestValidateInputs:
         result = mama2.validate_inputs(n, dict())
         assert result[mama2.RE_MAP][add_col] == (mama2.MAMA_RE_EXPR_MAP[add_col] + "|" + add_re)
         assert result[mama2.RE_MAP][replace_col] == replace_re
+
+
+    @pytest.mark.parametrize("farg, filter_name",
+        [
+            ("allow_non_rs", mama2.SNP_PREFIX_FILTER),
+            ("allow_non_1_22_chr", mama2.CHR_FILTER),
+            ("allow_palindromic_snps", mama2.SNP_PALIN_FILT)
+        ])
+    def test__filter_removal_flags__expected_results(self, farg, filter_name, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Remove the indicated filter
+        setattr(n, farg, True)
+
+        result = mama2.validate_inputs(n, dict())
+        assert filter_name not in result[mama2.FILTER_MAP]
+
+
+    @pytest.mark.parametrize("min_f, max_f",
+        [
+            (0.0, 0.4),
+            (0.6, 1.0),
+            (0.1, 0.5),
+            (-0.1, 0.5),
+            (0.2, 0.8),
+            (0.1, 1.5)
+        ])
+    def test__freq_filter_flag__expected_results(self, min_f, max_f, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set the frequency filter flag
+        setattr(n, "freq_bounds", [min_f, max_f])
+
+        freq_data = [min_f - 0.00001, min_f, min_f + 0.00001, 0.5 * (min_f + max_f),
+                     max_f - 0.00001, max_f, max_f + 0.00001]
+        df = pd.DataFrame({mama2.FREQ_COL : freq_data})
+
+        result = mama2.validate_inputs(n, dict())
+
+        assert mama2.FREQ_FILTER in result[mama2.FILTER_MAP]
+        freq_filter_func, freq_filter_desc = result[mama2.FILTER_MAP][mama2.FREQ_FILTER]
+
+        filt_results = freq_filter_func(df)
+
+        assert filt_results.sum() == 2
+        assert filt_results[0] == True
+        assert filt_results[len(filt_results) - 1] == True
+        assert str(min_f) in freq_filter_desc
+        assert str(max_f) in freq_filter_desc
 
     # TODO(jonbjala) Test column mapping (SS file with missing columns)

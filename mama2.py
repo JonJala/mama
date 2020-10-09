@@ -75,38 +75,51 @@ DEFAULT_MAF_MAX = 1.0  # TODO(jonbjala) Actually use these
 DEFAULT_FILTER_FUNC_DESC = "Filters out SNPs %s"
 
 # Standard filter functions used for SNPs for MAMA
+SumstatFilter = Callable[[pd.DataFrame], pd.Series]
+def create_freq_filter(min_freq: float, max_freq: float) -> SumstatFilter:
+    return lambda df: ~df[FREQ_COL].between(min_freq, max_freq)
+
+NAN_FILTER = 'NO NAN'
+FREQ_FILTER = 'FREQ BOUNDS'
+SE_FILTER = 'SE BOUNDS'
+SNP_PREFIX_FILTER = 'SNP PREFIX'
+CHR_FILTER = 'CHR BOUNDS'
+SNP_DUP_ALL_FILTER = 'INVALID SNPS'
+SNP_PALIN_FILT = 'PALINDROMIC SNPS'
+
 MAMA_STD_FILTER_FUNCS = {
-    'NO NAN' :
+    NAN_FILTER :
         {
             'func' : lambda df: df.isnull().any(axis=1),
             'description' : DEFAULT_FILTER_FUNC_DESC % "with any NaN values"
         },
-    'FREQ BOUNDS' :
+    FREQ_FILTER :
         {
-            'func' : lambda df: ~df[FREQ_COL].between(0.0, 1.0),
-            'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [0.0, 1.0]"
+            'func' : create_freq_filter(DEFAULT_MAF_MIN, DEFAULT_MAF_MAX),
+            'description' : DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of "
+                            "[%s, %s]" % (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX)
         },
-    'SE BOUNDS' :
+    SE_FILTER :
         {
             'func' : lambda df: df[SE_COL].lt(0.0),
             'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
         },
-    'SNP PREFIX' :
+    SNP_PREFIX_FILTER :
         {
             'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
             'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
         },
-    'CHR BOUNDS' :
+    CHR_FILTER :
         {
             'func' : lambda df: ~df[CHR_COL].between(1, 22),
             'description' : DEFAULT_FILTER_FUNC_DESC % "with listed chromosomes outside range 1-22"
         },
-    'INVALID SNPS' :
+    SNP_DUP_ALL_FILTER :
         {
             'func' : lambda df: df[A1_COL] == df[A2_COL],
             'description' : DEFAULT_FILTER_FUNC_DESC % "with major allele = minor allele"
         },
-    'PALINDROMIC SNPS' :
+    SNP_PALIN_FILT :
         {
             'func' : lambda df: df[A1_COL].replace(COMPLEMENT) == df[A2_COL],
             'description' : DEFAULT_FILTER_FUNC_DESC % "where major / minor alleles are a base pair" # TODO(jonbjala) Is this description ok?
@@ -124,6 +137,7 @@ OUT_PREFIX = "output_prefix"
 ANCESTRIES = "ancestries"
 RE_MAP = "re_map"
 COL_MAP = "col_map"
+FILTER_MAP = "filter_map"
 
 ####################################################################################################
 
@@ -535,6 +549,19 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
             raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
                                "%s and phenotype = %s): %s" % (ss_file, a, p, ex))
 
+    # Create filter map to use for summary statistics
+    filt_map = MAMA_STD_FILTERS.copy()
+    if pargs.freq_bounds != [DEFAULT_MAF_MIN, DEFAULT_MAF_MAX]:
+        filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
+                                 DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [%s, %s]" %
+                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+    if getattr(pargs, "allow_non_rs", None):
+        del filt_map[SNP_PREFIX_FILTER]
+    if getattr(pargs, "allow_non_1_22_chr", None):
+        del filt_map[CHR_FILTER]
+    if getattr(pargs, "allow_palindromic_snps", None):
+        del filt_map[SNP_PALIN_FILT]
+
     # Copy attributes to the internal dictionary from parsed args
     for attr in vars(pargs):
         internal_values[attr] = getattr(pargs, attr)
@@ -545,6 +572,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     internal_values[ANCESTRIES] = ancestries
     internal_values[RE_MAP] = re_map
     internal_values[COL_MAP] = col_map
+    internal_values[FILTER_MAP] = filt_map
 
     return internal_values
 
@@ -583,7 +611,6 @@ def intersect_snp_lists(sumstats: Dict[str, pd.DataFrame], ldscores: pd.DataFram
 #                is correct longterm (i.e. filters should never throw or should halt the
 #                whole program if they do), though it seems like SOME kind of error reporting
 #                mechanism would be useful
-SumstatFilter = Callable[[pd.DataFrame], pd.Series]
 def run_filters(df: pd.DataFrame, filters: Dict[str, SumstatFilter]) -> Dict[str, pd.Series]:
     """
     Runs a list of filters on the input dataframe, returning a dictionary of Boolean Series
