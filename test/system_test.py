@@ -218,6 +218,7 @@ class TestValidateInputs:
         for attr in vars(valid_basic_pargs):
             assert getattr(valid_basic_pargs, attr) == result[attr]
 
+    #########
 
     def test__existing_directory_conflicts_with_out_prefix__throws_error(self, valid_basic_pargs):
 
@@ -232,6 +233,7 @@ class TestValidateInputs:
             mama2.validate_inputs(n, dict())
         assert prefix in str(ex_info.value)
 
+    #########
 
     def test__missing_out_directory__throws_error(self, valid_basic_pargs):
 
@@ -247,6 +249,7 @@ class TestValidateInputs:
             mama2.validate_inputs(n, dict())
         assert invalid_subdir in str(ex_info.value)
 
+    #########
 
     def test__invalid_frequency_filter_range__throws_error(self, valid_basic_pargs):
 
@@ -260,6 +263,7 @@ class TestValidateInputs:
         assert str(n.freq_bounds[0]) in str(ex_info.value)
         assert str(n.freq_bounds[1]) in str(ex_info.value)
 
+    #########
 
     def test__missing_ld_pair_col__throws_error(self, valid_basic_pargs, temp_test_dir):
 
@@ -282,6 +286,7 @@ class TestValidateInputs:
         assert dropped_anc1 in str(ex_info.value)
         assert dropped_anc2 in str(ex_info.value)
 
+    #########
 
     def test__missing_ld_snp_col__throws_error(self, valid_basic_pargs, temp_test_dir):
 
@@ -302,6 +307,7 @@ class TestValidateInputs:
             mama2.validate_inputs(n, dict())
         assert dropped_col in str(ex_info.value)
 
+    #########
 
     def test__add_and_replace_re__expected_results(self, valid_basic_pargs):
 
@@ -321,6 +327,7 @@ class TestValidateInputs:
         assert result[mama2.RE_MAP][add_col] == (mama2.MAMA_RE_EXPR_MAP[add_col] + "|" + add_re)
         assert result[mama2.RE_MAP][replace_col] == replace_re
 
+    #########
 
     @pytest.mark.parametrize("farg, filter_name",
         [
@@ -338,6 +345,8 @@ class TestValidateInputs:
         result = mama2.validate_inputs(n, dict())
         assert filter_name not in result[mama2.FILTER_MAP]
 
+
+    #########
 
     @pytest.mark.parametrize("min_f, max_f",
         [
@@ -372,4 +381,43 @@ class TestValidateInputs:
         assert str(min_f) in freq_filter_desc
         assert str(max_f) in freq_filter_desc
 
+
+    #########
+
+    LD_OPT_TUPLES = [
+        ("dummy_attr", mama2.MAMA_REG_OPT_ALL_FREE),
+        ("reg_ld_perf_corr", mama2.MAMA_REG_OPT_PERF_CORR)
+    ]
+
+    SE2_OPT_TUPLES = [
+        ("dummy_attr", mama2.MAMA_REG_OPT_ALL_FREE),
+        ("reg_se2_zero", mama2.MAMA_REG_OPT_ALL_ZERO),
+        ("reg_se2_ident", mama2.MAMA_REG_OPT_IDENT),
+        ("reg_se2_diag", mama2.MAMA_REG_OPT_OFFDIAG_ZERO),
+    ]
+
+    INT_OPT_TUPLES = [
+        ("dummy_attr", mama2.MAMA_REG_OPT_ALL_FREE),
+        ("reg_int_zero", mama2.MAMA_REG_OPT_ALL_ZERO),
+        ("reg_int_diag", mama2.MAMA_REG_OPT_OFFDIAG_ZERO),
+    ]
+    @pytest.mark.parametrize("ld_se2_int_tuples",
+                             list(itertools.product(LD_OPT_TUPLES, SE2_OPT_TUPLES, INT_OPT_TUPLES)))
+    def test__reg_coef_nonfile_opts__expected_results(self, ld_se2_int_tuples, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set flag values
+        for t in ld_se2_int_tuples:
+            setattr(n, t[0], True)
+
+        result = mama2.validate_inputs(n, dict())
+
+        assert result[mama2.REG_LD_COEF_OPT] == ld_se2_int_tuples[0][1]
+        assert result[mama2.REG_SE2_COEF_OPT] == ld_se2_int_tuples[1][1]
+        assert result[mama2.REG_INT_COEF_OPT] == ld_se2_int_tuples[2][1]
+
+    #########
+
     # TODO(jonbjala) Test column mapping (SS file with missing columns)
+    # TODO(jonbjala) Test regression coefficient file options

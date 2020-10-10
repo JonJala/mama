@@ -33,10 +33,8 @@ def test__two_pops_diff_ancestries_same_pheno__expected_results(request):
     ldscores_filename = "two_pop/pop1_pop2_chr1.l2.ldscore"
     ldscores_full_filepath = os.path.join(data_directory, ldscores_filename)    
 
-    betas, ses, omega_sigma_drops = mama2.mama_pipeline(sumstats, ldscores_full_filepath)
+    result_sumstats = mama2.mama_pipeline(sumstats, ldscores_full_filepath)
 
-    # print("JJ: betas\n", betas)
-    # print("JJ: ses\n", ses)
-    # print("JJ: omega_sigma_drops\n", omega_sigma_drops)
+    # print("JJ: DF 1\n", result_sumstats[("POP1", pheno_name)])
+    # print("JJ: DF 2\n", result_sumstats[("POP2", pheno_name)])
     assert True
-

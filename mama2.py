@@ -139,6 +139,9 @@ RE_MAP = "re_map"
 COL_MAP = "col_map"
 FILTER_MAP = "filter_map"
 SUMSTATS_MAP = "sumstats_map"
+REG_LD_COEF_OPT = "regression_ld_option"
+REG_SE2_COEF_OPT = "regression_se2_option"
+REG_INT_COEF_OPT = "regression_intercept_option"
 
 ####################################################################################################
 
@@ -182,22 +185,12 @@ PopulationId = Tuple[AncestryId, PhenotypeId]
 
 # TODO(jonbjala)
 """
-Options / Flags: (ignore LD score creation options for now)
-
 Outputs:
 
-1) How to report betas and SEs - Look like a mock sumstats file
-
-2) Log file
-
-3) Need to report reference allele information? Yes (see 1)
-
-4) What should go to terminal / log file in terms of actual results?  (averages of omega / sigma / etc?)
+What should go to terminal / log file in terms of actual results?  (averages of omega / sigma / etc?)
     - LD score coefs
     - mean omega and sigma (after dropping non-pos def stuff)
     - mean chi^2 of input and outputs
-
-
 """
 
 def reg_ex(s:str) -> str:
@@ -291,6 +284,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     # Output Options
     out_opt = parser.add_argument_group(title="Output Specifications")
     out_opt.add_argument("--out", "-o", metavar="FILE_PREFIX", type=str,
+                         default=DEFAULT_FULL_OUT_PREFIX,
                          help="Full prefix of output files (logs, sumstats results, etc.).  If not "
                               "set, [current working directory]/%s = \"%s\" will be used.  "
                               "Note: The directory specified must already exist." %
@@ -564,6 +558,41 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         del filt_map[CHR_FILTER]
     if getattr(pargs, "allow_palindromic_snps", None):
         del filt_map[SNP_PALIN_FILT]
+
+    # Process regression coefficient options
+    #   1) LD coefs
+    ld_coef_file = getattr(pargs, "reg_ld_coef", None)
+    if ld_coef_file:
+        # TODO(jonbjala) Check file!
+        internal_values[REG_LD_COEF_OPT] = ld_coef_file
+    elif getattr(pargs, "reg_ld_perf_corr", None):
+        internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_PERF_CORR
+    else:
+        internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    #   2) SE^2 coefs
+    se2_coef_file = getattr(pargs, "reg_se2_coef", None)
+    if se2_coef_file:
+        # TODO(jonbjala) Check file?
+        internal_values[REG_SE2_COEF_OPT] = se2_coef_file
+    elif getattr(pargs, "reg_se2_zero", None):
+        internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
+    elif getattr(pargs, "reg_se2_ident", None):
+        internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_IDENT
+    elif getattr(pargs, "reg_se2_diag", None):
+        internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
+    else:
+        internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    #   3) Intercept coefs
+    int_coef_file = getattr(pargs, "reg_int_coef", None)
+    if int_coef_file:
+        # TODO(jonbjala) Check file?
+        internal_values[REG_INT_COEF_OPT] = int_coef_file
+    elif getattr(pargs, "reg_int_zero", None):
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
+    elif getattr(pargs, "reg_int_diag", None):
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
+    else:
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
 
     # Copy attributes to the internal dictionary from parsed args
     for attr in vars(pargs):
@@ -1010,8 +1039,54 @@ def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,
     return result
 
 
-def run_ldscore_regressions(harm_betas, harm_ses,
-                            ldscores) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+MAMA_REG_OPT_ALL_FREE = "all_unconstrained"
+MAMA_REG_OPT_ALL_ZERO = "all_zero"
+MAMA_REG_OPT_OFFDIAG_ZERO = "offdiag_zero"
+MAMA_REG_OPT_IDENT = "identity"
+MAMA_REG_OPT_PERF_CORR = "perfect_corr"
+def fixed_option_helper(num_pops: int, opt_str: str = MAMA_REG_OPT_ALL_FREE) -> np.ndarray:
+    """
+    Determines a fixed coefficient matrix for use in the MAMA regressions based on whichever
+    option is passed in (default is totally unconstrained)
+
+    :param num_pops: The number of populations involved (if this is P, the return will be PxP)
+    :param opt_str: Option describing the constraints.  Expected to be a string, but if this
+                    is an ndarray, this will be passed back as the return value
+
+    :return: An ndarray of constraints / fixed coefficients corresponding to the given option
+             and number of populations (PxP matrix if num_pops = P)
+    """
+
+    if isinstance(opt_str, np.ndarray):
+        m_size = len(opt_str)
+        if m_size != num_pops:
+            raise RuntimeError("Regression coefficient matrix size (%sx%s) does not match "
+                               "number of populations %s" % (m_size, m_size, num_pops))
+        result = opt_str
+    elif opt_str == MAMA_REG_OPT_ALL_FREE:
+        result = np.full((num_pops, num_pops), np.NaN)
+    elif opt_str == MAMA_REG_OPT_ALL_ZERO:
+        result = np.zeros((num_pops, num_pops))
+    elif opt_str == MAMA_REG_OPT_OFFDIAG_ZERO:
+        result = np.zeros((num_pops, num_pops))
+        d_indices = np.diag_indices_from(result)
+        result[d_indices] = np.NaN
+    elif opt_str == MAMA_REG_OPT_IDENT:
+        result = np.identity(num_pops)
+    elif opt_str == MAMA_REG_OPT_PERF_CORR:
+        # MAMA_REG_OPT_PERF_CORR must be handled elsewhere (a constant matrix does not suffice)
+        result = np.full((num_pops, num_pops), np.NaN)
+    else:
+        raise RuntimeError("Invalid type (%s) or value (%s) for opt_str" % (type(opt_str), opt_str))
+
+    return result
+
+
+def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray,
+                            ldscores: np.ndarray, ld_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                            se_prod_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                            int_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE
+                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs the LD score and beta SE regression.  Assumes the PxP submatrices in the ldscores and the
     P columns of harmonized summary stat data have the same ordering of corresponding ancestries.
@@ -1019,6 +1094,12 @@ def run_ldscore_regressions(harm_betas, harm_ses,
     :param harm_betas: MxP matrix (M SNPs by P populations) of betas / effect sizes
     :param harm_ses: MxP matrix (M SNPs by P populations) of beta standard errors
     :param ldscores: (Mx)PxP symmetric matrices containing LD scores (PxP per SNP)
+    :param ld_fixed_opt: Option describing fixed constraints on this independent variable.
+                         Expected to be MAMA_REG_OPT_* or an ndarray.
+    :param se_prod_fixed_opt: Option describing fixed constraints on this independent variable.
+                         Expected to be MAMA_REG_OPT_* or an ndarray.
+    :param int_fixed_opt: Option describing fixed constraints on this independent variable.
+                          Expected to be MAMA_REG_OPT_* or an ndarray.
 
     :return: A tuple holding regression coefficient matrices (ldscore, constant, and se^2),
              each one a PxP ndarray
@@ -1042,22 +1123,39 @@ def run_ldscore_regressions(harm_betas, harm_ses,
     # Allocate coefs matrix (3 x P x P, slices are LD score, constant, se^2 in that order)
     result_coefs = np.zeros((N_VARS, P, P))
 
-    # Allocate fixed_coefs vector (length 3, order will be ld scores, constant, and se product)
-    fixed_coefs = np.full(N_VARS, np.NaN)
+    # Allocate fixed_coefs matrix (3xPxP, order will be ld scores, constant, and se product)
+    fixed_coefs = np.full((N_VARS, P, P), np.NaN)
+    fixed_opts = (ld_fixed_opt, se_prod_fixed_opt, int_fixed_opt)  # Same order as *_COEF values
+    for i, opt in enumerate(fixed_opts):
+        fixed_coefs[i] = fixed_option_helper(P, opt)
 
-    # Calculate each element (and therefore its symmetric opposite, as well)
+    # Calculate diagonal coefficients first
+    for p in range(P):
+        # Set the needed columns in the regression matrix
+        reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p, p] # LD Score column
+        reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p], harm_ses[:, p]) # SE product
+
+        # Run the regression
+        result_coefs[:, p, p] = run_regression(
+            np.multiply(harm_betas[:, p], harm_betas[:, p]), reg_matrix,
+            np.ravel(fixed_coefs[:, p, p]))
+
+    # Handle the case where MAMA_REG_OPT_PERF_CORR was set
+    if ld_fixed_opt == MAMA_REG_OPT_PERF_CORR:
+        ld_sqrt_diag = np.sqrt(np.diag(result_coefs[LD_SCORE_COEF, :, :]))
+        fixed_coefs[LD_SCORE_COEF] = np.outer(ld_sqrt_diag, ld_sqrt_diag)
+
+    # Calculate each off-diagonal element (and therefore its symmetric opposite, as well)
     for p1 in range(P):
-        for p2 in range(p1, P):
+        for p2 in range(p1 + 1, P):
             # Set the needed columns in the regression matrix
             reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p1, p2] # LD Score column
             reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p1], harm_ses[:, p2]) # SE product
 
-            # TODO(jonbjala) Need various options to control what to fix things to
-            fixed_coefs[SE_PROD_COEF] = np.NaN if p1 == p2 else 0.0 # Only use for diagonals
-
             # Run the regression and set opposing matrix entry to make coef matrix symmetric
             result_coefs[:, p1, p2] = run_regression(
-                np.multiply(harm_betas[:, p1], harm_betas[:, p2]), reg_matrix, fixed_coefs)
+                np.multiply(harm_betas[:, p1], harm_betas[:, p2]), reg_matrix,
+                np.ravel(fixed_coefs[:, p1, p2]))
             result_coefs[:, p2, p1] = result_coefs[:, p1, p2]
 
 
@@ -1351,12 +1449,14 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
     return result
 
 
-# TODO(jonbjala) Allowing specifying population order?
+# TODO(jonbjala) Allowing specifying population order?  For now go with order in sumstats dictionary
 def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
                   re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
-                  filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS
-                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                  filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS,
+                  ld_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                  se_prod_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                  int_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE) -> Dict[PopulationId, pd.DataFrame]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -1369,11 +1469,9 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     :param filters: Map of filter name to a (function, description) tuple, used to filter
                     summary statistics
 
-    :return Tuple[np.ndarray, np.ndarray]: Tuple containing
-                                               1) Result betas
-                                               2) Result standard errors on the betas
-                                               3) Array indicating True where SNPs were effectively
-                                                  dropped due to invalid sigma / omega matrices
+    :return Dict[PopulationId, pd.DataFrame]: Result summary statistics dictionary (reference to
+                                              the same dictionary passed in, but with updated
+                                              summary statistics)
     """
 
     # Check / read in LD scores and then QC
@@ -1396,21 +1494,25 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
 
     # Copy values to numpy ndarrays to use in vectorized processing
     beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
-    # TODO(jonbjala) Maybe delete DataFrames at this point since they are no longer needed?, might need to save off pop_ids
 
     # Run LD score regressions
-    ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr)
+    ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr,
+                                                            ld_fixed_opt, se_prod_fixed_opt,
+                                                            int_fixed_opt)
 
-    # TODO(jonbjala) Log
+    # TODO(jonbjala) Log coefficients?
 
     # Calculate Omegas and Sigmas
     omega = create_omega_matrix(ldscore_arr, ld_coef)
     sigma = create_sigma_matrix(se_arr, se2_coef, const_coef)
 
     # Check omega and sigma for validity based on positive (semi-)definiteness
+    # Create drop arrays shapes that allow for broadcasting and comparison later
     omega_valid = qc_omega(omega).reshape((omega.shape[0], 1, 1))
     sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
     omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
+
+    # TODO(jonbjala) Log omega / sigma drops?
 
     # Run the MAMA method
     # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy
@@ -1418,7 +1520,14 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                               np.where(omega_sigma_drops, np.identity(omega.shape[1]), omega),
                               np.where(omega_sigma_drops, np.identity(sigma.shape[1]), sigma))
 
-    return new_betas, new_beta_ses, omega_sigma_drops
+    # Copy values back to the summary statistics DataFrames (and make omega / sigma - related drops)
+    omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops
+    for pop_num, ((ancestry, phenotype), ss_df) in enumerate(sumstats.items()):
+        ss_df[BETA_COL] = new_betas[:, pop_num]
+        ss_df[SE_COL] = new_beta_ses[:, pop_num]
+        ss_df.drop(ss_df.index[omega_sigma_1d_drops], inplace=True)
+
+    return sumstats
 
 
 ParserFunc = Callable[[str], argp.ArgumentParser]
@@ -1449,6 +1558,16 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     return parsed_args, user_args, parser
 
 
+def write_sumstats_to_file(filename: str, df: pd.DataFrame):
+    """
+    Helper function that writes a summary statistics DataFrame to disk
+
+    :param filename: Full path to output file
+    :param df: DataFrame holding the summary statistics
+    """
+    df.to_csv(filename, sep="\t", index_label=SNP_COL)
+
+
 def main_func(argv: List[str]):
     """
     Main function that should handle all the top-level processing for this program
@@ -1466,9 +1585,14 @@ def main_func(argv: List[str]):
         iargs = validate_inputs(parsed_args, user_args)
 
         # Run the MAMA pipeline
-        new_betas, new_beta_ses, omega_sigma_drops = mama_pipeline(
-            iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP], iargs[RE_MAP], iargs[filters])
+        result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP],
+                                        iargs[RE_MAP], iargs[FILTER_MAP], iargs[REG_LD_COEF_OPT],
+                                        iargs[REG_SE2_COEF_OPT], iargs[REG_INT_COEF_OPT])
 
+        # Write out the summary statistics to disk
+        for (ancestry, phenotype), ss_df in result_sumstats.items():
+            filename = "%s_%s_%s_sumstats.txt" % (iargs["out"], ancestry, phenotype)
+            write_sumstats_to_file(filename, ss_df)
 
         # Log any remaining information (like timing info?) TODO(jonbjala)
 
