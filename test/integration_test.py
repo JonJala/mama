@@ -38,3 +38,5 @@ def test__two_pops_diff_ancestries_same_pheno__expected_results(request):
     # print("JJ: DF 1\n", result_sumstats[("POP1", pheno_name)])
     # print("JJ: DF 2\n", result_sumstats[("POP2", pheno_name)])
     assert True
+
+    # TODO(jonbjala) Test existence of harmonized outputs in at least one case

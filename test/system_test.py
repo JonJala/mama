@@ -214,6 +214,10 @@ class TestValidateInputs:
         assert result[mama2.RE_MAP] == mama2.MAMA_RE_EXPR_MAP
         assert result[mama2.FILTER_MAP] == mama2.MAMA_STD_FILTERS
         assert len(result[mama2.SUMSTATS_MAP]) == len(valid_basic_pargs.sumstats)
+        assert not result[mama2.HARM_FILENAME_FSTR]
+        assert result[mama2.REG_LD_COEF_OPT] == mama2.MAMA_REG_OPT_ALL_FREE
+        assert result[mama2.REG_SE2_COEF_OPT] == mama2.MAMA_REG_OPT_ALL_FREE
+        assert result[mama2.REG_INT_COEF_OPT] == mama2.MAMA_REG_OPT_ALL_FREE
 
         for attr in vars(valid_basic_pargs):
             assert getattr(valid_basic_pargs, attr) == result[attr]
@@ -419,5 +423,81 @@ class TestValidateInputs:
 
     #########
 
+    def test__specify_harm_out__expected_results(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set harmonized output flag
+        n.out_harmonized = True
+
+        result = mama2.validate_inputs(n, dict())
+        assert result[mama2.HARM_FILENAME_FSTR]
+        assert n.out in result[mama2.HARM_FILENAME_FSTR]
+        assert mama2.HARMONIZED_SUFFIX in result[mama2.HARM_FILENAME_FSTR]
+
     # TODO(jonbjala) Test column mapping (SS file with missing columns)
     # TODO(jonbjala) Test regression coefficient file options
+
+#===================================================================================================
+# run_ldscore_regressions
+
+
+class TestRunLdScoreRegressions:
+
+    LD_POP1 = np.array([1.0, 2.0, 3.0, 4.0])
+    LD_POP2 = np.array([1.0, 1.0, 2.0, 3.0])
+    LD_POP3 = np.array([1.0, 1.0, 1.0, 2.0])
+    LDS = np.column_stack((LD_POP1, LD_POP2, LD_POP3))
+
+    LD_SCORES = np.sqrt(np.apply_along_axis(lambda x: np.outer(x, x), axis=1, arr=LDS))
+
+    SE_POP1 = np.sqrt(np.array([1, 2, 2, 2]))
+    SE_POP2 = np.sqrt(np.array([1, 2, 2, 2]))
+    SE_POP3 = np.sqrt(np.array([1, 2, 2, 2]))
+    SES = np.column_stack((SE_POP1, SE_POP2, SE_POP3))
+
+
+    BETA_POP1 = np.sqrt(np.array([1, 2, 2, 2]))
+    BETA_POP2 = np.sqrt(np.array([1, 2, 2, 2]))
+    BETA_POP3 = np.sqrt(np.array([1, 2, 2, 2]))
+    BETAS = np.sqrt(LDS + np.square(SES) + 1)
+
+    #########
+    def test__testdata1__expected_results(self):
+
+        ld_coef, int_coef, se2_coef = mama2.run_ldscore_regressions(
+            TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
+            TestRunLdScoreRegressions.LD_SCORES)
+        print("JJ: ld_coef\n", ld_coef)
+        print("JJ: int_coef\n", int_coef)
+        print("JJ: se2_coef\n", se2_coef)
+        print("\n\n\n")
+        ld_coef, int_coef, se2_coef = mama2.run_ldscore_regressions(
+            TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
+            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mama2.MAMA_REG_OPT_ALL_ZERO)
+        print("JJ: zero SE2 ld_coef\n", ld_coef)
+        print("JJ: zero SE2 int_coef\n", int_coef)
+        print("JJ: zero SE2 se2_coef\n", se2_coef)
+        print("\n\n\n")
+        ld_coef, int_coef, se2_coef = mama2.run_ldscore_regressions(
+            TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
+            TestRunLdScoreRegressions.LD_SCORES, int_fixed_opt=mama2.MAMA_REG_OPT_ALL_ZERO)
+        print("JJ: zero intercept ld_coef\n", ld_coef)
+        print("JJ: zero intercept int_coef\n", int_coef)
+        print("JJ: zero intercept se2_coef\n", se2_coef)
+        print("\n\n\n")
+        ld_coef, int_coef, se2_coef = mama2.run_ldscore_regressions(
+            TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
+            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mama2.MAMA_REG_OPT_IDENT)
+        print("JJ: identity se2 ld_coef\n", ld_coef)
+        print("JJ: identity se2 int_coef\n", int_coef)
+        print("JJ: identity se2 se2_coef\n", se2_coef)
+        print("\n\n\n")
+        ld_coef, int_coef, se2_coef = mama2.run_ldscore_regressions(
+            TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
+            TestRunLdScoreRegressions.LD_SCORES, ld_fixed_opt=mama2.MAMA_REG_OPT_PERF_CORR)
+        print("JJ: perf corr ld_coef\n", ld_coef)
+        print("JJ: perf corr int_coef\n", int_coef)
+        print("JJ: perf corr se2_coef\n", se2_coef)
+        # TODO(jonbjala) Finish / actually write this test
+        assert True

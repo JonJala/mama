@@ -142,6 +142,13 @@ SUMSTATS_MAP = "sumstats_map"
 REG_LD_COEF_OPT = "regression_ld_option"
 REG_SE2_COEF_OPT = "regression_se2_option"
 REG_INT_COEF_OPT = "regression_intercept_option"
+HARM_FILENAME_FSTR = "harmonized_sumstats_filename_format_str"
+
+# Constants used for labeling output files
+RESULTS_SUFFIX = "results.txt"
+HARMONIZED_SUFFIX = "harmonized.txt"
+LD_COEF_SUFFIX = "ld_coef.txt"
+
 
 ####################################################################################################
 
@@ -287,7 +294,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                          default=DEFAULT_FULL_OUT_PREFIX,
                          help="Full prefix of output files (logs, sumstats results, etc.).  If not "
                               "set, [current working directory]/%s = \"%s\" will be used.  "
-                              "Note: The directory specified must already exist." %
+                              "Note: The containing directory specified must already exist." %
                               (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
     out_opt.add_argument("--out-ld-coef", action="store_true",
                          help="If specified, MAMA will output the LD regression coefficients "
@@ -593,6 +600,11 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
     else:
         internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+
+
+    # If harmonized summary statistics should be written to disk, determine filename format string
+    internal_values[HARM_FILENAME_FSTR] = pargs.out + "_%s_%s_" + HARMONIZED_SUFFIX \
+        if getattr(pargs, "out_harmonized", None) else ""
 
     # Copy attributes to the internal dictionary from parsed args
     for attr in vars(pargs):
@@ -1125,7 +1137,7 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray,
 
     # Allocate fixed_coefs matrix (3xPxP, order will be ld scores, constant, and se product)
     fixed_coefs = np.full((N_VARS, P, P), np.NaN)
-    fixed_opts = (ld_fixed_opt, se_prod_fixed_opt, int_fixed_opt)  # Same order as *_COEF values
+    fixed_opts = (ld_fixed_opt, int_fixed_opt, se_prod_fixed_opt)  # Same order as *_COEF values
     for i, opt in enumerate(fixed_opts):
         fixed_coefs[i] = fixed_option_helper(P, opt)
 
@@ -1456,7 +1468,8 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                   filters: Dict[str, Tuple[SumstatFilter, str]] = MAMA_STD_FILTERS,
                   ld_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   se_prod_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
-                  int_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE) -> Dict[PopulationId, pd.DataFrame]:
+                  int_fixed_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                  harmonized_file_fstr: str = "") -> Dict[PopulationId, pd.DataFrame]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -1489,8 +1502,11 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
         sumstats[pop_id] = process_sumstats(pop_df, col_map, re_expr_map, MAMA_REQ_STD_COLS,
                                             filters)
 
-    # Harmonize the summary stats and LD scores
+    # Harmonize the summary stats and LD scores (write to disk if requested)
     harmonize_all(sumstats, ldscores)
+    if harmonized_file_fstr:
+        for (ancestry, phenotype), harm_ss_df in sumstats.items():
+            write_sumstats_to_file(harmonized_file_fstr % (ancestry, phenotype), harm_ss_df)
 
     # Copy values to numpy ndarrays to use in vectorized processing
     beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
@@ -1587,11 +1603,12 @@ def main_func(argv: List[str]):
         # Run the MAMA pipeline
         result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP],
                                         iargs[RE_MAP], iargs[FILTER_MAP], iargs[REG_LD_COEF_OPT],
-                                        iargs[REG_SE2_COEF_OPT], iargs[REG_INT_COEF_OPT])
+                                        iargs[REG_SE2_COEF_OPT], iargs[REG_INT_COEF_OPT],
+                                        iargs[HARM_FILENAME_FSTR])
 
         # Write out the summary statistics to disk
         for (ancestry, phenotype), ss_df in result_sumstats.items():
-            filename = "%s_%s_%s_sumstats.txt" % (iargs["out"], ancestry, phenotype)
+            filename = "%s_%s_%s_%s" % (iargs["out"], ancestry, phenotype, RESULTS_SUFFIX)
             write_sumstats_to_file(filename, ss_df)
 
         # Log any remaining information (like timing info?) TODO(jonbjala)
