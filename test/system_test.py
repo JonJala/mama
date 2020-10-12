@@ -224,37 +224,6 @@ class TestValidateInputs:
 
     #########
 
-    def test__existing_directory_conflicts_with_out_prefix__throws_error(self, valid_basic_pargs):
-
-        n = copy.copy(valid_basic_pargs)
-
-        # Make sure there is a collision between the specified out prefix and the
-        # existing temporary directory
-        n.out = os.path.dirname(n.out)
-        prefix = os.path.basename(n.out)
-
-        with pytest.raises(RuntimeError) as ex_info:
-            mama2.validate_inputs(n, dict())
-        assert prefix in str(ex_info.value)
-
-    #########
-
-    def test__missing_out_directory__throws_error(self, valid_basic_pargs):
-
-        n = copy.copy(valid_basic_pargs)
-
-        # Insert bogus directory into out prefix path
-        dir_name = os.path.dirname(n.out)
-        prefix_name = os.path.basename(n.out)
-        invalid_subdir = "random_directory_abcxyz"
-        n.out = os.path.join(dir_name, "random_directory_abcxyz", prefix_name)
-
-        with pytest.raises(FileNotFoundError) as ex_info:
-            mama2.validate_inputs(n, dict())
-        assert invalid_subdir in str(ex_info.value)
-
-    #########
-
     def test__invalid_frequency_filter_range__throws_error(self, valid_basic_pargs):
 
         n = copy.copy(valid_basic_pargs)
