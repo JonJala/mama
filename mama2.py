@@ -145,9 +145,9 @@ REG_INT_COEF_OPT = "regression_intercept_option"
 HARM_FILENAME_FSTR = "harmonized_sumstats_filename_format_str"
 
 # Constants used for labeling output files
-RESULTS_SUFFIX = "results.txt"
-HARMONIZED_SUFFIX = "harmonized.txt"
-LD_COEF_SUFFIX = "ld_coef.txt"
+RESULTS_SUFFIX = ".res"
+HARMONIZED_SUFFIX = ".hrm"
+LD_COEF_SUFFIX = "reg.coef"
 
 
 ####################################################################################################
