@@ -232,7 +232,31 @@ def input_file(s:str) -> str:
     if not os.path.exists(stripped_file):
         raise FileNotFoundError("The input file [%s] does not exist." % stripped_file)
 
-    return stripped_file
+    return os.path.abspath(stripped_file)
+
+
+def input_prefix(s:str) -> str:
+    """
+    Used for parsing some inputs to this program, namely full file prefixes given as input.
+    Whitespace is removed, but no case-changing occurs.
+
+    :param s: String passed in by argparse
+
+    :return str: The prefix
+    """
+
+    stripped_p = s.strip()
+
+    # Validate existence of output directory (and that no conflicts exist)
+    if os.path.exists(stripped_p):
+        raise RuntimeError("The designated output prefix \"%s\" conflicts with an existing "
+                           "file or directory" % stripped_p)
+
+    s_dir = os.path.dirname(stripped_p)
+    if not os.path.exists(s_dir):
+        raise FileNotFoundError("The designated output directory [%s] does not exist." % s_dir)
+
+    return stripped_p
 
 
 def ss_input_tuple(s:str) -> Tuple[str, str, str]:
@@ -272,7 +296,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     # Input Options
     in_opt = parser.add_argument_group(title="Main Input Specifications")
-    in_opt.add_argument("--sumstats", "-s", type=ss_input_tuple, nargs="+", required=True,
+    in_opt.add_argument("--sumstats", type=ss_input_tuple, nargs="+", required=True,
                         metavar="FILE%sANCESTRY%sPHENOTYPE" % (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP),
                         help="List of triples F%sA%sP where F is path to a summary statistics "
                              "file, A is the name of an ancestry, and P is the name of a "
@@ -282,7 +306,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              "for a given summary statistics file are used in combination as a "
                              "unique identifier.  Currently, these are all case sensitive." %
                              (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
-    in_opt.add_argument("--ld-scores", "--ld", "-l", type=str, required=True, metavar="FILE",
+    in_opt.add_argument("--ld-scores", type=str, required=True, metavar="FILE",
                         help="Path to LD scores file.  Columns are assumed to be of the form "
                              "ANC1_ANC2, where ANC1 and ANC2 are ancestries.  Matching is case "
                              "sensitive, so these should match exactly to the ancestries passed "
@@ -290,7 +314,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     # Output Options
     out_opt = parser.add_argument_group(title="Output Specifications")
-    out_opt.add_argument("--out", "-o", metavar="FILE_PREFIX", type=str,
+    out_opt.add_argument("--out", metavar="FILE_PREFIX", type=input_prefix,
                          default=DEFAULT_FULL_OUT_PREFIX,
                          help="Full prefix of output files (logs, sumstats results, etc.).  If not "
                               "set, [current working directory]/%s = \"%s\" will be used.  "
@@ -310,7 +334,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     # General Options
     gen_opt = parser.add_argument_group(title="General Options")
-    gen_opt.add_argument("--use-standardized-units", "--std-units", action="store_true",
+    gen_opt.add_argument("--use-standardized-units", action="store_true",
                          help="This option should be specified to cause the processing done in "
                               "MAMA to be done in standardized units.  Inputs and outputs are "
                               "always in allele count, but internal processing can be done in "
@@ -319,12 +343,12 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "allele count before final results are reported)")
     #   Logging options (subgroup)
     log_opt = gen_opt.add_mutually_exclusive_group()
-    log_opt.add_argument("--quiet", "-q", action="store_true",
+    log_opt.add_argument("--quiet", action="store_true",
                          help="This option will cause the program to limit logging and terminal "
                               "output to warnings and errors, reducing output compared to "
                               "the default/standard logging mode.  It is mutually "
                               "exclusive with the --verbose/--debug option.")
-    log_opt.add_argument("--verbose", "-v", "--debug", "-d", action="store_true",
+    log_opt.add_argument("--verbose", action="store_true",
                            help="This option will greatly increase the logging and terminal output "
                                 "of the program compared to the default/standard logging mode.  "
                                 "This is useful for debugging and greater visibility into the "
@@ -392,14 +416,13 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "Specify minimum frequency first, then maximum.  "
                                   "Defaults to minimum of %s and maximum of %s." %
                                   (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
-    ss_filt_opt.add_argument("--allow-non-rs", "--no-snpid-filt", action="store_true",
+    ss_filt_opt.add_argument("--allow-non-rs", action="store_true",
                              help="This option removes the filter that drops SNPs whose IDs do not "
                                   "begin with \"rs\" (case-insensitive)")
-    ss_filt_opt.add_argument("--allow-non-1-22-chr", "--no-chr-filt", action="store_true",
+    ss_filt_opt.add_argument("--allow-non-1-22-chr", action="store_true",
                              help="This option removes the filter that drops SNPs whose chromosome "
                                   "number is not in the range 1-22")
-    ss_filt_opt.add_argument("--allow-palindromic-snps", "--no-palindrome-filt",
-                             action="store_true",
+    ss_filt_opt.add_argument("--allow-palindromic-snps", action="store_true",
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
                                   "and Minor allele = \'C\')")
@@ -454,16 +477,41 @@ def to_arg(flag_str: str) -> str:
     return flag_str.replace("-", "_")
 
 
-def set_up_logger() -> str:
+def set_up_logger(log_file: str, log_level: int):
     """
     Set up the logger for this utility.
 
-    :return: Returns the full path to the log output file
+    :param log_file: Full path to the file used to store logs
+    :param log_level: Level used for logging
     """
 
-    # TODO(jonbjala)
+    log_handlers = []
 
-    return ""
+    # Create the stderr handler
+    stderr_handler = logging.StreamHandler(stream=sys.stderr)
+    stderr_handler.setLevel(logging.WARNING)
+    stderr_formatter = logging.Formatter('%(levelname)s: %(message)s')
+    stderr_handler.setFormatter(stderr_formatter)
+    log_handlers.append(stderr_handler)
+
+    # Create the stdout handler (if, based on log level, it could possibly have messages to log)
+    if log_level <= logging.INFO:
+        stdout_handler = logging.StreamHandler(stream=sys.stdout)
+        stdout_handler.setLevel(log_level)
+        stdout_formatter = logging.Formatter('%(message)s')
+        stdout_handler.setFormatter(stdout_formatter)
+        stdout_handler.addFilter(lambda record: record.levelno <= logging.INFO)
+        log_handlers.append(stdout_handler)
+
+    # Create the file handler
+    file_handler = logging.FileHandler(log_file, mode='w')
+    file_handler.setLevel(log_level)
+    file_formatter = logging.Formatter('%(asctime)s %(message)s')
+    file_handler.setFormatter(file_formatter)
+    log_handlers.append(file_handler)
+
+    # Set logging handlers and level for root logger
+    logging.basicConfig(handlers=log_handlers, level=log_level, datefmt='%I:%M:%S %p')
 
 
 def get_user_inputs(argv: List[str], parsed_args: argp.Namespace) -> str:
@@ -501,15 +549,8 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     # Prepare dictionary that will hold internal values for this program
     internal_values = dict()
 
-    # Validate existence of output directory (and that no conflicts exist)
-    if os.path.exists(pargs.out):
-        raise RuntimeError("The designated output prefix \"%s\" conflicts with an existing "
-                           "file or directory" % pargs.out)
-
+    # TODO(jonbjala) Verify directory permissions for output?
     out_dir = os.path.dirname(pargs.out)
-    if not os.path.exists(out_dir):
-        raise FileNotFoundError("The designated output directory [%s] does not exist." % out_dir)
-    # TODO(jonbjala) Verify directory permissions?
 
     # Validate frequency filter bounds
     if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
@@ -539,7 +580,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
             re_map[req_col] = "%s|%s" % (re_map[req_col], additional_re)
         elif replacement_re:
             re_map[req_col] = replacement_re
-
+    logging.debug("\nRegex map = %s", re_map)
 
     # Validate columns of all the sumstats files (via trying to map them to standard column names)
     col_map = dict()
@@ -565,6 +606,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         del filt_map[CHR_FILTER]
     if getattr(pargs, "allow_palindromic_snps", None):
         del filt_map[SNP_PALIN_FILT]
+    logging.debug("\nFilter map = %s\n", filt_map)
 
     # Process regression coefficient options
     #   1) LD coefs
@@ -576,6 +618,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_PERF_CORR
     else:
         internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    logging.debug("Regression coeffient option (LD) = %s", internal_values[REG_LD_COEF_OPT])
     #   2) SE^2 coefs
     se2_coef_file = getattr(pargs, "reg_se2_coef", None)
     if se2_coef_file:
@@ -589,6 +632,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
     else:
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    logging.debug("Regression coeffient option (SE^2) = %s", internal_values[REG_SE2_COEF_OPT])
     #   3) Intercept coefs
     int_coef_file = getattr(pargs, "reg_int_coef", None)
     if int_coef_file:
@@ -600,7 +644,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
     else:
         internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
-
+    logging.debug("Regression coeffient option (Intercept) = %s", internal_values[REG_INT_COEF_OPT])
 
     # If harmonized summary statistics should be written to disk, determine filename format string
     internal_values[HARM_FILENAME_FSTR] = pargs.out + "_%s_%s_" + HARMONIZED_SUFFIX \
@@ -788,8 +832,10 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
 
     # Intersect all the SNP lists to get the SNPs all data sources have in common
     snp_intersection = intersect_snp_lists(sumstats, ldscores)
+    logging.info("\nNumber of SNPS in initial intersection of all sources: %s",
+                 len(snp_intersection))
 
-    # Reduce each DF down to the SNP intersection TODO(jonbjala) Add logging / reporting, tally of drops, etc
+    # Reduce each DF down to the SNP intersection
     for pop_id, pop_df in sumstats.items():
         snps_to_drop = pop_df.index.difference(snp_intersection)
         pop_df.drop(snps_to_drop, inplace=True)
@@ -797,13 +843,17 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     ldscores.drop(snps_to_drop, inplace=True)
 
     # Standardize alleles in the summary statistics
+    logging.info("\nStandardizing reference alleles in summary statistics.")
     ref_popid, drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)
+    logging.info("Standardized to population: %s", ref_popid)
+    logging.info("Dropped %s SNPs during reference allele standardization." % drop_indices.sum())
+    if logging.root.level <= logging.DEBUG:
+        logging.debug("RS IDs of drops during standardization: %s",
+                      sumstats[ref_popid].index[drop_indices].to_list())
 
-    # Drop SNPs where there was an unfixable major/minor allele mismatch
+    # Drop SNPs as a result of standardization of reference alleles
     for pop_id, pop_df in sumstats.items():
         pop_df.drop(pop_df.index[drop_indices], inplace=True)
-
-    # TODO(jonbjala) Log dropped SNPs (at least a total)
 
 
 def rename_sumstats_cols(sumstats_df: pd.DataFrame, column_map: Dict[str, str]):
@@ -989,13 +1039,15 @@ def process_sumstats(initial_df: pd.DataFrame,
 
     # Log SNP drop info
     for filt_name, filt_drops in per_filt_drop_map.items():
-        logging.info("Filtered out  %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
+        logging.info("Filtered out %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
             filters.get(filt_name, "No description available")[1])
-        logging.debug("RS IDs = %s\n", initial_df[filt_drops.to_list()])
+        if logging.root.level <= logging.DEBUG:
+            logging.debug("\tRS IDs = %s\n", initial_df.index[filt_drops].to_list())
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
-    logging.info("\nAdditionally dropped %d duplicate SNPs", len(dups))
-    logging.debug("RS IDs = %s\n", dups)
+    logging.info("Additionally dropped %d duplicate SNPs", len(dups))
+    if logging.root.level <= logging.DEBUG:
+        logging.debug("\tRS IDs = %s\n", dups)
 
     return qc_df
 
@@ -1335,7 +1387,7 @@ def obtain_df(possible_df: Any, id_val: Any) -> pd.DataFrame:
 
     # If this is (presumably) a filename, read in the file
     if isinstance(possible_df, str):
-        logging.info("Reading in %s file: %s", id_val, possible_df)
+        logging.debug("Reading in %s file: %s", id_val, possible_df)
         possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(sumstats[pop_name], pd.DataFrame):
@@ -1488,10 +1540,12 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     """
 
     # Check / read in LD scores and then QC
+    logging.info("\nReading in and running QC on LD Scores.")
     ldscores = obtain_df(ldscores, "LD scores")
     ldscores = qc_ldscores(ldscores)
 
     # Check / read in summary stats and then QC
+    logging.info("\nReading in summary statistics.\n")
     for pop_id in sumstats.keys():
         # Read in if necessary (and update dictionary)
         sumstats[pop_id] = obtain_df(sumstats[pop_id], str(pop_id) + " sumstats")
@@ -1499,26 +1553,36 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
         # QC summary stats (along with some light validation and some logging of drops)
         pop_df = sumstats[pop_id]
         col_map = column_maps.get(pop_id, None)  # If a column map exists for this pop, use that
+        logging.info("Running QC on %s summary statistics", pop_id)
+        logging.debug("\tColumn mapping = %s\n", col_map)
         sumstats[pop_id] = process_sumstats(pop_df, col_map, re_expr_map, MAMA_REQ_STD_COLS,
                                             filters)
 
     # Harmonize the summary stats and LD scores (write to disk if requested)
     harmonize_all(sumstats, ldscores)
     if harmonized_file_fstr:
+        logging.info("\nWriting harmonized summary statistics to disk.\n")
         for (ancestry, phenotype), harm_ss_df in sumstats.items():
-            write_sumstats_to_file(harmonized_file_fstr % (ancestry, phenotype), harm_ss_df)
+            filename = harmonized_file_fstr % (ancestry, phenotype)
+            logging.debug("\t%s", filename)
+            write_sumstats_to_file(filename, harm_ss_df)
 
     # Copy values to numpy ndarrays to use in vectorized processing
     beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
 
     # Run LD score regressions
+    logging.info("\nRunning LD Score regression.")
     ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr,
                                                             ld_fixed_opt, se_prod_fixed_opt,
                                                             int_fixed_opt)
 
-    # TODO(jonbjala) Log coefficients?
+    # Log coefficients at debug level
+    logging.debug("Regression coefficients (LD):\n%s", ld_coef)
+    logging.debug("Regression coefficients (Intercept):\n%s", const_coef)
+    logging.debug("Regression coefficients (SE^2):\n%s", se2_coef)
 
     # Calculate Omegas and Sigmas
+    logging.info("\nCreating omega and sigma matrices.")
     omega = create_omega_matrix(ldscore_arr, ld_coef)
     sigma = create_sigma_matrix(se_arr, se2_coef, const_coef)
 
@@ -1527,21 +1591,26 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     omega_valid = qc_omega(omega).reshape((omega.shape[0], 1, 1))
     sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
     omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
-
-    # TODO(jonbjala) Log omega / sigma drops?
+    omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops later
+    logging.info("Dropped %s SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
+                 omega_sigma_1d_drops.sum())
+    if logging.root.level <= logging.DEBUG:
+        logging.debug("\tRS IDs = %s", ldscores.index[omega_sigma_1d_drops].to_list())
 
     # Run the MAMA method
     # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy
+    logging.info("\nRunning main MAMA method.")
     new_betas, new_beta_ses = run_mama_method(beta_arr,
                               np.where(omega_sigma_drops, np.identity(omega.shape[1]), omega),
                               np.where(omega_sigma_drops, np.identity(sigma.shape[1]), sigma))
 
     # Copy values back to the summary statistics DataFrames (and make omega / sigma - related drops)
-    omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops
+    logging.info("\nPreparing results for output.")
     for pop_num, ((ancestry, phenotype), ss_df) in enumerate(sumstats.items()):
         ss_df[BETA_COL] = new_betas[:, pop_num]
         ss_df[SE_COL] = new_beta_ses[:, pop_num]
         ss_df.drop(ss_df.index[omega_sigma_1d_drops], inplace=True)
+        # TODO(jonbjala) Effective N
 
     return sumstats
 
@@ -1563,13 +1632,21 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     user_args = get_user_inputs(argv, parsed_args)
 
     # Set up the logger
-    full_logfile_path = set_up_logger()
+    log_file = parsed_args.out + ".log"
+    if parsed_args.quiet:
+        log_level = logging.WARN
+    elif parsed_args.verbose:
+        log_level = logging.DEBUG
+    else:
+        log_level = logging.INFO
+    full_logfile_path = set_up_logger(log_file, log_level)
 
     # Log header and other information (include parsed, user-specified args at debug level)
+    # Note: This is done at WARNING level to ensure it's displayed
     logging.info(HEADER)
-    logging.info("See full log at: %s\n", full_logfile_path)
-    logging.info("Program executed via:\n%s", format_terminal_call(argv))
-    logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
+    logging.info("See full log at: %s\n", log_file)
+    logging.info("Program executed via:\n%s\n", format_terminal_call(argv))
+    logging.debug("Program was called with the following arguments:\n%s", user_args)
 
     return parsed_args, user_args, parser
 
@@ -1607,11 +1684,14 @@ def main_func(argv: List[str]):
                                         iargs[HARM_FILENAME_FSTR])
 
         # Write out the summary statistics to disk
+        logging.info("Writing results to disk.")
         for (ancestry, phenotype), ss_df in result_sumstats.items():
             filename = "%s_%s_%s_%s" % (iargs["out"], ancestry, phenotype, RESULTS_SUFFIX)
+            logging.info("\t%s", filename)
             write_sumstats_to_file(filename, ss_df)
 
-        # Log any remaining information (like timing info?) TODO(jonbjala)
+        # Log any remaining information TODO(jonbjala) Timing info?
+        logging.info("\nExecution complete.\n")
 
     except Exception as ex:
         logging.exception(ex)
