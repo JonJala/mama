@@ -49,10 +49,10 @@ MAMA_RE_EXPR_MAP = {
     BP_COL : '.*BP.*',
     CHR_COL : '.*CHR.*',
     BETA_COL : '.*BETA.*',
-    FREQ_COL : '.*FREQ.*|.*FRQ.*|.*MAF.*',
+    FREQ_COL : '.*FREQ.*|.*FRQ.*|AF.*',
     SE_COL : '.*SE.*',
-    A1_COL : '.*A1.*|.*MAJOR.*|.*EFFECT.*ALL.*',
-    A2_COL : '.*A2.*|.*MINOR.*|.*OTHER.*ALL.*',
+    A1_COL : '.*A1.*|.*MAJOR.*|.*EFFECT.*ALL.*|REF.*',
+    A2_COL : '.*A2.*|.*MINOR.*|.*OTHER.*ALL.*|ALT.*',
 }
 
 # Columns that MAMA requires

@@ -14,12 +14,13 @@ from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
 
 import pandas as pd
 
-from mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
-                           DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, mama_pipeline)
-from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
-from sumstats import SNP_COL
-from util.df import determine_column_mapping
+from .mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
+                            DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, mama_pipeline)
+from .reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
+                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
+from .util.df import determine_column_mapping
+from .util.sumstats import SNP_COL
+
 
 # Constants / Parameters / Types #############
 

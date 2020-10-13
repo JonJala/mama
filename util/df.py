@@ -93,7 +93,7 @@ def rename_dataframe_cols(input_df: pd.DataFrame, column_map: Dict[str, str]):
 #################################
 # TODO(jonbjala) Add support for (or maybe require?) compiled RE objects as values of re_expr_map?
 def determine_column_mapping(orig_col_list: List[str], re_expr_map: Dict[str, str],
-                             req_cols: Set[str] = {}) -> Dict[str, str]:
+                             req_cols: Set[str] = set()) -> Dict[str, str]:
     """
     Given a list of column names (orig_col_list) and a map of standard names to regular expressions,
     determine a mapping between elements of orig_col_list and the standard names.  The optional

@@ -11,12 +11,14 @@ from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from core_mama import create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega, qc_sigma
-from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
-from sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL, 
-                      COMPLEMENT, create_freq_filter, standardize_all_sumstats, process_sumstats)
-from util.df import Filter, intersect_indices
+from .core_mama import create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega, qc_sigma
+from .reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
+                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
+from .util.df import Filter, intersect_indices
+from .util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
+                            A2_COL, COMPLEMENT, create_freq_filter, standardize_all_sumstats,
+                            process_sumstats)
+
 
 # Constants / Parameters / Types #############
 

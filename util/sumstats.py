@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from mama2.util.df import Filter, FilterMap, rename_dataframe_cols, run_filters
+from .df import Filter, FilterMap, rename_dataframe_cols, run_filters
 
 
 # Constants / Parameters / Types #############

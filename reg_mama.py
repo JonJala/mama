@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 
-from util.reg import run_regression
+from .util.reg import run_regression
 
 
 # Constants / Parameters / Types #############
