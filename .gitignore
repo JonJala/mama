@@ -17,7 +17,7 @@
 *.bak
 
 # Ignore output files from MAMA
-*results.txt
-*harmonized.txt
-*ld_coef.txt
+*.res
+*.hrm
+*.coef
 
