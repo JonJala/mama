@@ -42,7 +42,7 @@ DEFAULT_SHORT_PREFIX = "mama"
 # Constants used for labeling output files
 RESULTS_SUFFIX = ".res"
 HARMONIZED_SUFFIX = ".hrm"
-LD_COEF_SUFFIX = "reg.coef"
+LD_COEF_SUFFIX = "reg.cf"
 
 # Separator used to pass in triples of summary stats file, ancestry, and phenotype
 # Note: Do not make this whitespace!  (it will negatively affect parsing)
@@ -627,7 +627,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         if getattr(pargs, "out_harmonized", None) else ""
 
     # If regression coefficients should be written to disk, determine filename format string
-    internal_values[REG_FILENAME_FSTR] = pargs.out + "_%s" + LD_COEF_SUFFIX \
+    internal_values[REG_FILENAME_FSTR] = pargs.out + "_%s_" + LD_COEF_SUFFIX \
         if getattr(pargs, "out_reg_coef", None) else ""
 
     # Copy attributes to the internal dictionary from parsed args

@@ -19,5 +19,5 @@
 # Ignore output files from MAMA
 *.res
 *.hrm
-*.coef
+*.cf
 
