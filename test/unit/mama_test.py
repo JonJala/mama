@@ -1,5 +1,5 @@
 """
-Unit tests mama.py.  This should be run via pytest.
+Unit tests for mama.py.  This should be run via pytest.
 """
 
 import os

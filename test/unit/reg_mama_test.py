@@ -1,5 +1,5 @@
 """
-Unit tests reg_mama.py.  This should be run via pytest.
+Unit tests for reg_mama.py.  This should be run via pytest.
 """
 
 import numpy as np

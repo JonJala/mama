@@ -1,5 +1,5 @@
 """
-Unit tests of util/df.py.  This should be run via pytest.
+Unit tests for util/df.py.  This should be run via pytest.
 """
 
 import itertools

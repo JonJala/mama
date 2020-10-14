@@ -1,5 +1,5 @@
 """
-Unit tests of mama_pipeline.py.  This should be run via pytest.
+Unit tests for mama_pipeline.py.  This should be run via pytest.
 """
 
 import numpy as np

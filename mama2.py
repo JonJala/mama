@@ -82,7 +82,6 @@ def create_freq_filter(min_freq: float, max_freq: float) -> SumstatFilter:
 NAN_FILTER = 'NO NAN'
 FREQ_FILTER = 'FREQ BOUNDS'
 SE_FILTER = 'SE BOUNDS'
-SNP_PREFIX_FILTER = 'SNP PREFIX'
 CHR_FILTER = 'CHR BOUNDS'
 SNP_DUP_ALL_FILTER = 'INVALID SNPS'
 SNP_PALIN_FILT = 'PALINDROMIC SNPS'
@@ -103,11 +102,6 @@ MAMA_STD_FILTER_FUNCS = {
         {
             'func' : lambda df: df[SE_COL].lt(0.0),
             'description' : DEFAULT_FILTER_FUNC_DESC % "with negative SE values"
-        },
-    SNP_PREFIX_FILTER :
-        {
-            'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
-            'description' : DEFAULT_FILTER_FUNC_DESC % "whose IDs do not begin with \"rs\""
         },
     CHR_FILTER :
         {
@@ -416,9 +410,6 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "Specify minimum frequency first, then maximum.  "
                                   "Defaults to minimum of %s and maximum of %s." %
                                   (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
-    ss_filt_opt.add_argument("--allow-non-rs", action="store_true",
-                             help="This option removes the filter that drops SNPs whose IDs do not "
-                                  "begin with \"rs\" (case-insensitive)")
     ss_filt_opt.add_argument("--allow-non-1-22-chr", action="store_true",
                              help="This option removes the filter that drops SNPs whose chromosome "
                                   "number is not in the range 1-22")
@@ -1042,10 +1033,10 @@ def process_sumstats(initial_df: pd.DataFrame,
         logging.info("Filtered out %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
             filters.get(filt_name, "No description available")[1])
         if logging.root.level <= logging.DEBUG:
-            logging.debug("\tRS IDs = %s\n", initial_df.index[filt_drops].to_list())
+            logging.debug("\tRS IDs = %s\n", initial_df[filt_drops][SNP_COL].to_list())
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
-    logging.info("Additionally dropped %d duplicate SNPs", len(dups))
+    logging.info("Additionally dropped %d duplicate SNPs\n", len(dups))
     if logging.root.level <= logging.DEBUG:
         logging.debug("\tRS IDs = %s\n", dups)
 
@@ -1387,7 +1378,7 @@ def obtain_df(possible_df: Any, id_val: Any) -> pd.DataFrame:
 
     # If this is (presumably) a filename, read in the file
     if isinstance(possible_df, str):
-        logging.debug("Reading in %s file: %s", id_val, possible_df)
+        logging.info("Reading in %s file: %s", id_val, possible_df)
         possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(sumstats[pop_name], pd.DataFrame):
@@ -1408,6 +1399,10 @@ def qc_ldscores(ldscores_df: pd.DataFrame):
     """
     # Make copy of the dataframe (this copy will be modified)
     df = ldscores_df.copy()
+
+    # Drop any lines with NaN
+    nan_drops = MAMA_STD_FILTER_FUNCS[NAN_FILTER]['func'](df)
+    df.drop(df.index[nan_drops], inplace=True)
 
     # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
     df[SNP_COL] = df[SNP_COL].str.lower()
@@ -1553,7 +1548,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
         # QC summary stats (along with some light validation and some logging of drops)
         pop_df = sumstats[pop_id]
         col_map = column_maps.get(pop_id, None)  # If a column map exists for this pop, use that
-        logging.info("Running QC on %s summary statistics", pop_id)
+        logging.info("\nRunning QC on %s summary statistics", pop_id)
         logging.debug("\tColumn mapping = %s\n", col_map)
         sumstats[pop_id] = process_sumstats(pop_df, col_map, re_expr_map, MAMA_REQ_STD_COLS,
                                             filters)
@@ -1686,7 +1681,7 @@ def main_func(argv: List[str]):
         # Write out the summary statistics to disk
         logging.info("Writing results to disk.")
         for (ancestry, phenotype), ss_df in result_sumstats.items():
-            filename = "%s_%s_%s_%s" % (iargs["out"], ancestry, phenotype, RESULTS_SUFFIX)
+            filename = "%s_%s_%s%s" % (iargs["out"], ancestry, phenotype, RESULTS_SUFFIX)
             logging.info("\t%s", filename)
             write_sumstats_to_file(filename, ss_df)
 

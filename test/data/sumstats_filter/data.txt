@@ -10,7 +10,7 @@ G	T	0.5	1.0	0.4375	8	RS17	Keep_3
 A	G	0.5	-1.0	0.5	9	RS18	Drop
 C	A	0.5	1.1	0.5625	10	RS19	Drop
 T	C	0.5	0.25	0.625	0	rs20	Drop
-G	T	0.5	0.25	0.6875	12	Hello	Drop
+G	T	0.5	1.25	0.6875	12	rs21	Drop
 A	G	0.5	0.25	0.75	13	rs22	n/a
 n/a	A	0.5	0.25	0.8125	14	rs23	n/a
 T	C	0.5	0.25	0.875	15	rs16	Drop

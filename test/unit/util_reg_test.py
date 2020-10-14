@@ -1,5 +1,5 @@
 """
-Unit tests util/reg.py.  This should be run via pytest.
+Unit tests for util/reg.py.  This should be run via pytest.
 """
 
 import itertools

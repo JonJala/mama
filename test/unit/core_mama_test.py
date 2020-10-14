@@ -1,5 +1,5 @@
 """
-Unit tests core_mama.py.  This should be run via pytest.
+Unit tests for core_mama.py.  This should be run via pytest.
 """
 
 import itertools

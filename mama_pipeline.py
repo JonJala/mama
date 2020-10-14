@@ -50,7 +50,6 @@ DEFAULT_MAF_MAX = 1.0
 NAN_FILTER = 'NO NAN'
 FREQ_FILTER = 'FREQ BOUNDS'
 SE_FILTER = 'SE BOUNDS'
-SNP_PREFIX_FILTER = 'SNP PREFIX'
 CHR_FILTER = 'CHR BOUNDS'
 SNP_DUP_ALL_FILTER = 'INVALID SNPS'
 SNP_PALIN_FILT = 'PALINDROMIC SNPS'
@@ -70,11 +69,6 @@ MAMA_STD_FILTER_FUNCS = {
         {
             'func' : lambda df: df[SE_COL].lt(0.0),
             'description' : "Filters out SNPs with negative SE values"
-        },
-    SNP_PREFIX_FILTER :
-        {
-            'func' : lambda df: ~df[SNP_COL].str.startswith('rs'),
-            'description' : "Filters out SNPs whose IDs do not begin with \"rs\""
         },
     CHR_FILTER :
         {
@@ -120,7 +114,7 @@ def obtain_df(possible_df: Any, id_val: Any) -> pd.DataFrame:
 
     # If this is (presumably) a filename, read in the file
     if isinstance(possible_df, str):
-        logging.debug("Reading in %s file: %s", id_val, possible_df)
+        logging.info("Reading in %s file: %s", id_val, possible_df)
         possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(sumstats[pop_name], pd.DataFrame):
@@ -142,6 +136,10 @@ def qc_ldscores(ldscores_df: pd.DataFrame):
     """
     # Make copy of the dataframe (this copy will be modified)
     df = ldscores_df.copy()
+
+    # Drop any lines with NaN
+    nan_drops = MAMA_STD_FILTER_FUNCS[NAN_FILTER]['func'](df)
+    df.drop(df.index[nan_drops], inplace=True)
 
     # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
     df[SNP_COL] = df[SNP_COL].str.lower()
@@ -280,7 +278,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
         # QC summary stats (along with some light validation and some logging of drops)
         pop_df = sumstats[pop_id]
         col_map = column_maps.get(pop_id, None)  # If a column map exists for this pop, use that
-        logging.info("Running QC on %s summary statistics", pop_id)
+        logging.info("\nRunning QC on %s summary statistics", pop_id)
         logging.debug("\tColumn mapping = %s\n", col_map)
         sumstats[pop_id] = process_sumstats(pop_df, re_expr_map, MAMA_REQ_STD_COLS,
                                             filters, col_map)

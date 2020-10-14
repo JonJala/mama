@@ -15,11 +15,12 @@ from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
 import pandas as pd
 
 from .mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
-                            DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, mama_pipeline)
+                            DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, FREQ_FILTER, CHR_FILTER,
+                            SNP_PALIN_FILT, mama_pipeline)
 from .reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
                        MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
 from .util.df import determine_column_mapping
-from .util.sumstats import SNP_COL
+from .util.sumstats import SNP_COL, create_freq_filter
 
 
 # Constants / Parameters / Types #############
@@ -306,9 +307,6 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "Specify minimum frequency first, then maximum.  "
                                   "Defaults to minimum of %s and maximum of %s." %
                                   (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
-    ss_filt_opt.add_argument("--allow-non-rs", action="store_true",
-                             help="This option removes the filter that drops SNPs whose IDs do not "
-                                  "begin with \"rs\" (case-insensitive)")
     ss_filt_opt.add_argument("--allow-non-1-22-chr", action="store_true",
                              help="This option removes the filter that drops SNPs whose chromosome "
                                   "number is not in the range 1-22")
@@ -552,10 +550,8 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     filt_map = MAMA_STD_FILTERS.copy()
     if pargs.freq_bounds != [DEFAULT_MAF_MIN, DEFAULT_MAF_MAX]:
         filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
-                                 DEFAULT_FILTER_FUNC_DESC % "with FREQ values outside of [%s, %s]" %
-                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
-    if getattr(pargs, "allow_non_rs", None):
-        del filt_map[SNP_PREFIX_FILTER]
+                                    "Drops SNPs with FREQ values outside of [%s, %s]" %
+                                    (pargs.freq_bounds[0], pargs.freq_bounds[1]))
     if getattr(pargs, "allow_non_1_22_chr", None):
         del filt_map[CHR_FILTER]
     if getattr(pargs, "allow_palindromic_snps", None):
