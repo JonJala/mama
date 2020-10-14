@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 
-from .util.reg import run_regression
+from util.reg import run_regression
 
 
 # Constants / Parameters / Types #############
@@ -23,7 +23,7 @@ MAMA_REG_OPT_PERF_CORR = "perfect_corr"
 # Functions ##################################
 
 #################################
-def fixed_option_helper(num_pops: int, opt_str: str = MAMA_REG_OPT_ALL_FREE) -> np.ndarray:
+def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> np.ndarray:
     """
     Determines a fixed coefficient matrix for use in the MAMA regressions based on whichever
     option is passed in (default is totally unconstrained)

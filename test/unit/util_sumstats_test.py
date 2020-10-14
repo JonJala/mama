@@ -4,6 +4,11 @@ Unit tests of util/sumstats.py.  This should be run via pytest.
 
 import os
 import sys
+main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
+data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
+sys.path.append(main_directory)
+
 import tempfile
 
 import numpy as np
@@ -298,3 +303,40 @@ class TestStandardizeAllSumstats:
                        (df[ss.A1_COL].replace(ss.COMPLEMENT) == ref_df[ss.A1_COL]))
 
 # TODO(jonbjala) Test qc_sumstats() and process_sumstats()
+
+###########################################
+
+class TestCreateFilters:
+
+    #########
+    @pytest.mark.parametrize("min_freq, max_freq",
+    [
+            (0.0, 1.0),
+            (-1.0, 2.0),
+            (0.5, 0.6)
+    ])
+    def test__create_freq_filter__expected_results(self, min_freq, max_freq):
+        tol = 0.001
+        filt_func = ss.create_freq_filter(min_freq, max_freq)
+        f_list = [min_freq - tol, min_freq, min_freq + tol, 0.5 * (min_freq + max_freq),
+                  max_freq - tol, max_freq, max_freq + tol]
+        expected = [True, False, False, False, False, False, True]
+
+        df = pd.DataFrame(data={ss.FREQ_COL : f_list, 'dummy' : [1.0 for f in f_list]})
+        assert all(filt_func(df) == expected)
+
+    #########
+    @pytest.mark.parametrize("chr_list",
+    [
+            ['1', '2', '3', 'X', 'Y'],
+            [],
+            ['5', '10']
+    ])
+    def test__create_chr_filter__expected_results(self, chr_list):
+        filt_func = ss.create_chr_filter(chr_list)
+        extra_c = ['Dummy1', 'Dummy2', '-100000', '99999']
+        c_list = chr_list + extra_c
+        expected = [False] * len(chr_list) + [True] * len(extra_c)
+
+        df = pd.DataFrame(data={ss.CHR_COL : c_list, 'dummy' : [1.0 for f in c_list]})
+        assert all(filt_func(df) == expected)

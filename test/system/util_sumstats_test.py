@@ -3,6 +3,12 @@ System tests for util/sumstats.py.  This should be run via pytest.
 """
 
 import os
+import sys
+main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
+data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
+sys.path.append(main_directory)
+
 import tempfile
 
 import pytest
@@ -11,8 +17,7 @@ import mama2.mama as mama
 import mama2.mama_pipeline as mp
 import mama2.util.sumstats as ss
 
-test_directory = os.path.dirname(__file__)
-data_directory = os.path.abspath(os.path.join(test_directory, '../data'))
+
 
 @pytest.fixture(scope="module")
 def temp_test_dir():
@@ -33,10 +38,10 @@ class TestProcessSumstats:
         ss_full_filepath = os.path.join(data_directory, ss_file)
 
         orig_df = mp.obtain_df(ss_full_filepath, "SS")
-
+        print("JJ: \n", orig_df)
         df = ss.process_sumstats(orig_df, mp.MAMA_RE_EXPR_MAP, mp.MAMA_REQ_STD_COLS,
                                  mp.MAMA_STD_FILTERS)
-
+        print("JJ: \n", df)
         res_col = next(c for c in df.columns if "keep" in c)
         num_keeps = int(next(token for token in res_col.split("_") if token.isnumeric()))
 

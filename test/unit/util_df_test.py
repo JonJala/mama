@@ -2,8 +2,14 @@
 Unit tests for util/df.py.  This should be run via pytest.
 """
 
-import itertools
 import os
+import sys
+main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
+data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
+sys.path.append(main_directory)
+
+import itertools
 import tempfile
 
 import numpy as np

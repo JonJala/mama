@@ -2,12 +2,19 @@
 System tests for mama.py.  This should be run via pytest.
 """
 
+import os
+import sys
+main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
+data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
+sys.path.append(main_directory)
+
 import argparse as argp
 import copy
 import itertools
-import os
 import tempfile
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -62,7 +69,6 @@ def valid_basic_pargs(temp_test_dir):
 
     # Set namespace attributes
     pargs.out = os.path.join(tmp_dir_path, 'test_prefix')
-    pargs.freq_bounds = [0.0, 1.0]
     pargs.sumstats = [(f,a,p) for ((a,p), f) in ss_files.items()]
     pargs.ld_scores = ldscores_filename
 
@@ -84,6 +90,7 @@ class TestValidateInputs:
         assert result[mama.FILTER_MAP] == mama.MAMA_STD_FILTERS
         assert len(result[mama.SUMSTATS_MAP]) == len(valid_basic_pargs.sumstats)
         assert not result[mama.HARM_FILENAME_FSTR]
+        assert not result[mama.REG_FILENAME_FSTR]
         assert result[mama.REG_LD_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
         assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
         assert result[mama.REG_INT_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
@@ -173,7 +180,6 @@ class TestValidateInputs:
 
     @pytest.mark.parametrize("farg, filter_name",
         [
-            ("allow_non_1_22_chr", mp.CHR_FILTER),
             ("allow_palindromic_snps", mp.SNP_PALIN_FILT)
         ])
     def test__filter_removal_flags__expected_results(self, farg, filter_name, valid_basic_pargs):
@@ -222,7 +228,7 @@ class TestValidateInputs:
         assert str(min_f) in freq_filter_desc
         assert str(max_f) in freq_filter_desc
 
-
+    # TODO(jonbjala) Test other filters?  (like CHR)
     #########
 
     LD_OPT_TUPLES = [
@@ -260,6 +266,24 @@ class TestValidateInputs:
 
     #########
 
+    def test__reg_coef_file_opts__expected_results(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        arr = np.array([1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+        filename = os.path.abspath(os.path.join(data_directory, "coef_mat/sym_mat_1.coef"))
+        n.reg_ld_coef = mama.input_np_matrix(filename)
+
+        result = mama.validate_inputs(n, dict())
+
+        assert isinstance(result[mama.REG_LD_COEF_OPT], np.ndarray)
+        assert result[mama.REG_LD_COEF_OPT].shape == (9, 9)
+        assert np.allclose(result[mama.REG_LD_COEF_OPT], np.outer(arr, arr))
+        assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
+        assert result[mama.REG_INT_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
+
+    #########
+
     def test__specify_harm_out__expected_results(self, valid_basic_pargs):
 
         n = copy.copy(valid_basic_pargs)
@@ -272,5 +296,19 @@ class TestValidateInputs:
         assert n.out in result[mama.HARM_FILENAME_FSTR]
         assert mama.HARMONIZED_SUFFIX in result[mama.HARM_FILENAME_FSTR]
 
+    #########
+
+    def test__specify_reg_out__expected_results(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set harmonized output flag
+        n.out_reg_coef = True
+
+        result = mama.validate_inputs(n, dict())
+        assert result[mama.REG_FILENAME_FSTR]
+        assert n.out in result[mama.REG_FILENAME_FSTR]
+        assert mama.LD_COEF_SUFFIX in result[mama.REG_FILENAME_FSTR]
+
+
     # TODO(jonbjala) Test column mapping (SS file with missing columns)
-    # TODO(jonbjala) Test regression coefficient file options

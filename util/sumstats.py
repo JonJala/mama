@@ -10,7 +10,8 @@ from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from .df import Filter, FilterMap, rename_dataframe_cols, run_filters, determine_column_mapping
+from util.df import (Filter, FilterMap, rename_dataframe_cols, run_filters,
+                           determine_column_mapping)
 
 
 # Constants / Parameters / Types #############
@@ -36,17 +37,26 @@ COMPLEMENT = {
 BASES = set(COMPLEMENT.keys())
 
 
+# Maximum number of RS IDs to show in lists when not as debug level
+MAX_RSID_LOGGING = 10
+
 # Functions ##################################
 
 #################################
+# TODO(jonbjala) Add check for min <= max here, as well?
 def create_freq_filter(min_freq: float, max_freq: float) -> Filter:
     return lambda df: ~df[FREQ_COL].between(min_freq, max_freq)
 
 
 #################################
+def create_chr_filter(chr_values: List[str]) -> Filter:
+    return lambda df: ~df[CHR_COL].astype(str).isin(chr_values)
+
+
+#################################
 def qc_sumstats(sumstats_df: pd.DataFrame, filters: FilterMap,
                 column_map: Dict[str, str]) -> Tuple[pd.DataFrame, pd.Series,
-                                                     Dict[str, pd.Series], List]:
+                                                     Dict[str, List[str]], List]:
     """
     Runs QC steps like renaming columns and dropping rows based on filters
 
@@ -56,8 +66,8 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: FilterMap,
     :return: Tuple containing:
              1) A modified copy of the input data frame (SNPs dropped, columns renamed, etc.)
              2) The indices of the union of SNPs being dropped, and
-             3) A dictionary mapping filter name to an ordered collection (pd.Series) of
-                booleans indicating which SNPs to drop for that filter
+             3) A dictionary mapping filter name to a List of RS IDs indicating which SNPs were 
+                dropped for that filter
              4) A list containing the rsIDs of SNPs that are dropped due to being duplicates
     """
 
@@ -70,8 +80,15 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: FilterMap,
     # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
     df[SNP_COL] = df[SNP_COL].str.lower()
 
+    # Make sure allele columns and chromosome column are upper case
+    df[A1_COL] = df[A1_COL].str.upper()
+    df[A2_COL] = df[A1_COL].str.upper()
+    df[CHR_COL] = df[SNP_COL].str.upper()
+
     # Run filters and drop rows
     cumulative_drop_indices, filt_drop_indices = run_filters(df, filters)
+    filt_drops = {filt_name : df[drop_indices][SNP_COL].to_list()
+                  for filt_name, drop_indices in filt_drop_indices.items()}
     df.drop(df.index[cumulative_drop_indices], inplace=True)
 
     # Drop duplicate SNP rows, set the SNP column to be the index, and sort by index
@@ -81,7 +98,7 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: FilterMap,
     df.set_index(SNP_COL, inplace=True)
     df.sort_index(inplace=True)
 
-    return df, cumulative_drop_indices, filt_drop_indices, dup_snps.to_list()
+    return df, cumulative_drop_indices, filt_drops, dup_snps.to_list()
 
 
 #################################
@@ -226,21 +243,20 @@ def process_sumstats(initial_df: pd.DataFrame, re_expr_map: Dict[str, str],
         raise RuntimeError("Required columns (%s) missing from column mapping: %s" %
                                (missing_req_cols, column_map))
 
-
     # Run QC on the df
+    logging.info("\nInitial number of SNPs / rows = %s", len(initial_df))
     filter_map = {f_name : f_func for (f_name, (f_func, f_desc)) in filters.items()}
     qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filter_map, column_map)
 
     # Log SNP drop info
+    max_rs_len = MAX_RSID_LOGGING if logging.root.level > logging.DEBUG else len(drop_indices)
     for filt_name, filt_drops in per_filt_drop_map.items():
-        logging.info("Filtered out %d SNPs with \"%s\" (%s)", filt_drops.sum(), filt_name,
-            filters.get(filt_name, "No description available")[1])
-        if logging.root.level <= logging.DEBUG:
-            logging.debug("\tRS IDs = %s\n", initial_df.index[filt_drops].to_list())
+        logging.info("\nFiltered out %d SNPs with \"%s\" (%s)", len(filt_drops), filt_name,
+                     filters.get(filt_name, (0, "No description available"))[1])
+        logging.info("\tRS IDs = %s", filt_drops[:min(max_rs_len, len(filt_drops))])
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
     logging.info("Additionally dropped %d duplicate SNPs", len(dups))
-    if logging.root.level <= logging.DEBUG:
-        logging.debug("\tRS IDs = %s\n", dups)
+    logging.info("\tRS IDs = %s\n", dups[:min(max_rs_len, len(dups))])
 
     return qc_df

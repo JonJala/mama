@@ -12,15 +12,16 @@ import re
 import sys
 from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
 
+import numpy as np
 import pandas as pd
 
-from .mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
+from mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
                             DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, FREQ_FILTER, CHR_FILTER,
-                            SNP_PALIN_FILT, mama_pipeline)
-from .reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
+                            SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline)
+from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
                        MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
-from .util.df import determine_column_mapping
-from .util.sumstats import SNP_COL, create_freq_filter
+from util.df import determine_column_mapping
+from util.sumstats import SNP_COL, create_freq_filter
 
 
 # Constants / Parameters / Types #############
@@ -59,7 +60,7 @@ REG_LD_COEF_OPT = "regression_ld_option"
 REG_SE2_COEF_OPT = "regression_se2_option"
 REG_INT_COEF_OPT = "regression_intercept_option"
 HARM_FILENAME_FSTR = "harmonized_sumstats_filename_format_str"
-
+REG_FILENAME_FSTR = "regression_coef_filename_format_str"
 
 # Derived Constants###########################
 
@@ -170,6 +171,19 @@ def ss_input_tuple(s:str) -> Tuple[str, str, str]:
     return input_file(ss_file), ancestry.strip(), phenotype.strip()
 
 
+def input_np_matrix(s:str) -> np.ndarray:
+    """
+    Used for parsing some inputs to this program, namely Numpy ndarrays (such as regression
+    coefficient matrices).
+
+    :param s: String passed in by argparse
+
+    :return: ndarray containing the matrix in the file indicated
+    """
+    filename = input_file(s)
+    return np.fromfile(filename, sep='\t')
+
+
 #################################
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
     """
@@ -211,7 +225,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "set, [current working directory]/%s = \"%s\" will be used.  "
                               "Note: The containing directory specified must already exist." %
                               (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
-    out_opt.add_argument("--out-ld-coef", action="store_true",
+    out_opt.add_argument("--out-reg-coef", action="store_true",
                          help="If specified, MAMA will output the LD regression coefficients "
                               "to disk.  This is useful for reference, but also in the case "
                               "where it is desired to edit the matrices and then pass back into "
@@ -251,7 +265,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                         description="Optional regression inputs / constraints")
     #   LD score coefficient options (subgroup)
     reg_ld_opt = reg_opt.add_mutually_exclusive_group()
-    reg_ld_opt.add_argument("--reg-ld-coef", type=input_file, metavar="FILE",
+    reg_ld_opt.add_argument("--reg-ld-coef", type=input_np_matrix, metavar="FILE",
                             help="Optional argument indicating the file containing the regression "
                                  "coefficients for the LD scores.  If this is specified, this will "
                                  "override calculation of LD score coefficients.  "
@@ -263,7 +277,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                  "This is mutually exclusive with other --reg-ld-* options")
     #   SE^2 coefficient options (subgroup)
     reg_se2_opt = reg_opt.add_mutually_exclusive_group()
-    reg_se2_opt.add_argument("--reg-se2-coef", type=input_file, metavar="FILE",
+    reg_se2_opt.add_argument("--reg-se2-coef", type=input_np_matrix, metavar="FILE",
                              help="Optional argument indicating the file containing the regression "
                                   "coefficients for SE^2.  If this is specified, this will "
                                   "override calculation of SE^2 coefficients.  "
@@ -282,7 +296,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "This is mutually exclusive with other --reg-se2-* options")
     #   Intercept coefficient options (subgroup)
     reg_int_opt = reg_opt.add_mutually_exclusive_group()
-    reg_int_opt.add_argument("--reg-int-coef", type=input_file, metavar="FILE",
+    reg_int_opt.add_argument("--reg-int-coef", type=input_np_matrix, metavar="FILE",
                              help="Optional argument indicating the file containing the regression "
                                   "coefficients for the intercept.  If this is specified, this "
                                   "will override calculation of intercept coefficients.  "
@@ -301,15 +315,16 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                             description="Options for filtering/processing "
                                                         "summary stats")
     # TODO(jonbjala) Decide if this should be defaulted or just processed if specified
-    ss_filt_opt.add_argument("--freq-bounds", default=[DEFAULT_MAF_MIN, DEFAULT_MAF_MAX],
-                             nargs=2, metavar=("MIN", "MAX"), type=float,
+    ss_filt_opt.add_argument("--freq-bounds", nargs=2, metavar=("MIN", "MAX"), type=float,
                              help="This option adjusts the filtering of summary statistics.  "
                                   "Specify minimum frequency first, then maximum.  "
                                   "Defaults to minimum of %s and maximum of %s." %
                                   (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
-    ss_filt_opt.add_argument("--allow-non-1-22-chr", action="store_true",
-                             help="This option removes the filter that drops SNPs whose chromosome "
-                                  "number is not in the range 1-22")
+    ss_filt_opt.add_argument("--allowed-chr-values", type=str.upper, nargs="+",
+                             help="This option allows specification of allowed values for the "
+                                  "chromosome field in summary statistics.  Case is converted to "
+                                  "upper here and in the resulting data.  Default is %s." %
+                                  DEFAULT_CHR_LIST)
     ss_filt_opt.add_argument("--allow-palindromic-snps", action="store_true",
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
@@ -486,6 +501,7 @@ def write_sumstats_to_file(filename: str, df: pd.DataFrame):
 
 
 #################################
+# TODO(jonbjala) This function is large enough that it should probably be broken up
 def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     """
     Responsible for coordinating whatever initial validation of inputs can be done
@@ -503,11 +519,6 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
 
     # TODO(jonbjala) Verify directory permissions for output?
     out_dir = os.path.dirname(pargs.out)
-
-    # Validate frequency filter bounds
-    if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
-        raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
-                           (pargs.freq_bounds[0], pargs.freq_bounds[1]))
 
     # Validate columns of the LD scores file
     ld_cols = set(
@@ -548,32 +559,58 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
 
     # Create filter map to use for summary statistics
     filt_map = MAMA_STD_FILTERS.copy()
-    if pargs.freq_bounds != [DEFAULT_MAF_MIN, DEFAULT_MAF_MAX]:
+    if getattr(pargs, "freq_bounds", None):
+        if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
+            raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
+                               (pargs.freq_bounds[0], pargs.freq_bounds[1]))
         filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
-                                    "Drops SNPs with FREQ values outside of [%s, %s]" %
-                                    (pargs.freq_bounds[0], pargs.freq_bounds[1]))
-    if getattr(pargs, "allow_non_1_22_chr", None):
-        del filt_map[CHR_FILTER]
+                                 "Filters out SNPs with FREQ values outside of [%s, %s]" %
+                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+    if getattr(pargs, "allowed_chr_values", None):
+        filt_map[CHR_FILTER] = (create_chr_filter(pargs.allowed_chr_values),
+                                "Filters out SNPs with listed chromosomes not in %s" %
+                                pargs.allowed_chr_values)
     if getattr(pargs, "allow_palindromic_snps", None):
         del filt_map[SNP_PALIN_FILT]
     logging.debug("\nFilter map = %s\n", filt_map)
 
     # Process regression coefficient options
+    num_pops = len(pargs.sumstats)
+    num_pops_sq = num_pops * num_pops
     #   1) LD coefs
-    ld_coef_file = getattr(pargs, "reg_ld_coef", None)
-    if ld_coef_file:
-        # TODO(jonbjala) Check file!
-        internal_values[REG_LD_COEF_OPT] = ld_coef_file
+    ld_coef_matrix = getattr(pargs, "reg_ld_coef", None)
+    if ld_coef_matrix is not None:
+        print("JJ: \n", ld_coef_matrix)
+        if len(ld_coef_matrix) != num_pops * num_pops:
+            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
+                               "(LD) but got %s." % (num_pops_sq, len(ld_coef_matrix)))
+        internal_values[REG_LD_COEF_OPT] = ld_coef_matrix.reshape((num_pops, num_pops))
     elif getattr(pargs, "reg_ld_perf_corr", None):
         internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_PERF_CORR
     else:
         internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
     logging.debug("Regression coeffient option (LD) = %s", internal_values[REG_LD_COEF_OPT])
-    #   2) SE^2 coefs
-    se2_coef_file = getattr(pargs, "reg_se2_coef", None)
-    if se2_coef_file:
-        # TODO(jonbjala) Check file?
-        internal_values[REG_SE2_COEF_OPT] = se2_coef_file
+    #   2) Intercept coefs
+    int_coef_matrix = getattr(pargs, "reg_int_coef", None)
+    if int_coef_matrix is not None:
+        if len(int_coef_matrix) != num_pops * num_pops:
+            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
+                               "(intercept) but got %s." % (num_pops_sq, len(int_coef_matrix)))
+        internal_values[REG_INT_COEF_OPT] = int_coef_matrix.reshape((num_pops, num_pops))
+    elif getattr(pargs, "reg_int_zero", None):
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
+    elif getattr(pargs, "reg_int_diag", None):
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
+    else:
+        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    logging.debug("Regression coeffient option (Intercept) = %s", internal_values[REG_INT_COEF_OPT])
+    #   3) SE^2 coefs
+    se2_coef_matrix = getattr(pargs, "reg_se2_coef", None)
+    if se2_coef_matrix is not None:
+        if len(se2_coef_matrix) != num_pops * num_pops:
+            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
+                               "(SE^2) but got %s." % (num_pops_sq, len(se2_coef_matrix)))
+        internal_values[REG_SE2_COEF_OPT] = se2_coef_matrix.reshape((num_pops, num_pops))
     elif getattr(pargs, "reg_se2_zero", None):
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
     elif getattr(pargs, "reg_se2_ident", None):
@@ -583,22 +620,15 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     else:
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
     logging.debug("Regression coeffient option (SE^2) = %s", internal_values[REG_SE2_COEF_OPT])
-    #   3) Intercept coefs
-    int_coef_file = getattr(pargs, "reg_int_coef", None)
-    if int_coef_file:
-        # TODO(jonbjala) Check file?
-        internal_values[REG_INT_COEF_OPT] = int_coef_file
-    elif getattr(pargs, "reg_int_zero", None):
-        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
-    elif getattr(pargs, "reg_int_diag", None):
-        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
-    else:
-        internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
-    logging.debug("Regression coeffient option (Intercept) = %s", internal_values[REG_INT_COEF_OPT])
+
 
     # If harmonized summary statistics should be written to disk, determine filename format string
-    internal_values[HARM_FILENAME_FSTR] = pargs.out + "_%s_%s_" + HARMONIZED_SUFFIX \
+    internal_values[HARM_FILENAME_FSTR] = pargs.out + "_%s_%s" + HARMONIZED_SUFFIX \
         if getattr(pargs, "out_harmonized", None) else ""
+
+    # If regression coefficients should be written to disk, determine filename format string
+    internal_values[REG_FILENAME_FSTR] = pargs.out + "_%s" + LD_COEF_SUFFIX \
+        if getattr(pargs, "out_reg_coef", None) else ""
 
     # Copy attributes to the internal dictionary from parsed args
     for attr in vars(pargs):
@@ -637,7 +667,7 @@ def main_func(argv: List[str]):
         result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP],
                                         iargs[RE_MAP], iargs[FILTER_MAP], iargs[REG_LD_COEF_OPT],
                                         iargs[REG_SE2_COEF_OPT], iargs[REG_INT_COEF_OPT],
-                                        iargs[HARM_FILENAME_FSTR])
+                                        iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR])
 
         # Write out the summary statistics to disk
         logging.info("Writing results to disk.")

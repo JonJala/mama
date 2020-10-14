@@ -11,13 +11,14 @@ from typing import Any, Dict, List, Set, Tuple
 import numpy as np
 import pandas as pd
 
-from .core_mama import create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega, qc_sigma
-from .reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
-from .util.df import Filter, intersect_indices
-from .util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
-                            A2_COL, COMPLEMENT, create_freq_filter, standardize_all_sumstats,
-                            process_sumstats)
+from core_mama import (create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega,
+                       qc_sigma)
+from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
+                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
+from util.df import Filter, intersect_indices
+from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
+                           A2_COL, COMPLEMENT, BASES, create_freq_filter, create_chr_filter,
+                           standardize_all_sumstats, process_sumstats)
 
 
 # Constants / Parameters / Types #############
@@ -36,28 +37,33 @@ MAMA_RE_EXPR_MAP = {
     BP_COL : '.*BP.*',
     CHR_COL : '.*CHR.*',
     BETA_COL : '.*BETA.*',
-    FREQ_COL : '.*FREQ.*|.*FRQ.*|.*MAF.*',
+    FREQ_COL : '.*FREQ.*|.*FRQ.*|AF.*',
     SE_COL : '.*SE.*',
-    A1_COL : '.*A1.*|.*MAJOR.*ALL.*|.*EFFECT.*ALL.*',
-    A2_COL : '.*A2.*|.*MINOR.*ALL.*|.*OTHER.*ALL.*',
+    A1_COL : '.*A1.*|.*MAJOR.*|.*EFFECT.*ALL.*|REF.*',
+    A2_COL : '.*A2.*|.*MINOR.*|.*OTHER.*ALL.*|ALT.*',
 }
 
 # Frequency filtering defaults
-DEFAULT_MAF_MIN = 0.0
-DEFAULT_MAF_MAX = 1.0
+DEFAULT_MAF_MIN = 0.01
+DEFAULT_MAF_MAX = 0.99
+
+# Chromosome filtering defaults
+DEFAULT_CHR_LIST = [str(cnum) for cnum in range(1, 23)] + ['X', 'Y']
 
 # Filter-related materials
 NAN_FILTER = 'NO NAN'
 FREQ_FILTER = 'FREQ BOUNDS'
 SE_FILTER = 'SE BOUNDS'
-CHR_FILTER = 'CHR BOUNDS'
-SNP_DUP_ALL_FILTER = 'INVALID SNPS'
+CHR_FILTER = 'CHR VALUES'
+SNP_DUP_ALL_FILTER = 'DUPLICATE ALLELE SNPS'
 SNP_PALIN_FILT = 'PALINDROMIC SNPS'
+SNP_INVALID_ALLELES_FILTER = 'INVALID ALLELES'
 MAMA_STD_FILTER_FUNCS = {
     NAN_FILTER :
         {
-            'func' : lambda df: df.isnull().any(axis=1),
-            'description' : "Filters out SNPs with any NaN values"
+            'func' : lambda df: df[list(MAMA_REQ_STD_COLS)].isnull().any(axis=1),
+            'description' : "Filters out SNPs with any NaN values in required "
+                            "columns %s" % MAMA_REQ_STD_COLS
         },
     FREQ_FILTER :
         {
@@ -72,8 +78,8 @@ MAMA_STD_FILTER_FUNCS = {
         },
     CHR_FILTER :
         {
-            'func' : lambda df: ~df[CHR_COL].between(1, 22),
-            'description' : "Filters out SNPs with listed chromosomes outside range 1-22"
+            'func' : create_chr_filter(DEFAULT_CHR_LIST),
+            'description' : "Filters out SNPs with listed chromosomes not in %s" % DEFAULT_CHR_LIST
         },
     SNP_DUP_ALL_FILTER :
         {
@@ -83,7 +89,12 @@ MAMA_STD_FILTER_FUNCS = {
     SNP_PALIN_FILT :
         {
             'func' : lambda df: df[A1_COL].replace(COMPLEMENT) == df[A2_COL],
-            'description' : "Filters out SNPs where major / minor alleles are a base pair" # TODO(jonbjala) Is this description ok?
+            'description' : "Filters out SNPs where major / minor alleles are a base pair"
+        },
+    SNP_INVALID_ALLELES_FILTER :
+        {
+            'func' : lambda df: ~df[A1_COL].isin(BASES) | ~df[A2_COL].isin(BASES),
+            'description' : "Filters out SNPs with alleles not in %s" % BASES
         },
     }
 
@@ -138,7 +149,7 @@ def qc_ldscores(ldscores_df: pd.DataFrame):
     df = ldscores_df.copy()
 
     # Drop any lines with NaN
-    nan_drops = MAMA_STD_FILTER_FUNCS[NAN_FILTER]['func'](df)
+    nan_drops = df.isnull().any(axis=1)
     df.drop(df.index[nan_drops], inplace=True)
 
     # Make sure SNP IDs are lower case ("rs..." rather than "RS...")
@@ -246,7 +257,8 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                   ld_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   se_prod_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   int_opt: Any = MAMA_REG_OPT_ALL_FREE,
-                  harmonized_file_fstr: str = "") -> Dict[PopulationId, pd.DataFrame]:
+                  harmonized_file_fstr: str = "",
+                  reg_coef_fstr: str = "") -> Dict[PopulationId, pd.DataFrame]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -258,6 +270,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     :param re_expr_map: Regular expressions used to map column names to standard columns
     :param filters: Map of filter name to a (function, description) tuple, used to filter
                     summary statistics
+    # TODO(jonbjala) Switch to kwargs?
 
     :return Dict[PopulationId, pd.DataFrame]: Result summary statistics dictionary (reference to
                                               the same dictionary passed in, but with updated
@@ -306,6 +319,11 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     logging.debug("Regression coefficients (LD):\n%s", ld_coef)
     logging.debug("Regression coefficients (Intercept):\n%s", const_coef)
     logging.debug("Regression coefficients (SE^2):\n%s", se2_coef)
+    if reg_coef_fstr:
+        logging.info("\nWriting regression coefficients to disk.\n")
+        ld_coef.tofile(reg_coef_fstr % "ld", sep='\t')
+        const_coef.tofile(reg_coef_fstr % "int", sep='\t')
+        se2_coef.tofile(reg_coef_fstr % "se2", sep='\t')
 
     # Calculate Omegas and Sigmas
     logging.info("\nCreating omega and sigma matrices.")

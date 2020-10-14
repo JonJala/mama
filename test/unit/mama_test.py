@@ -3,6 +3,12 @@ Unit tests for mama.py.  This should be run via pytest.
 """
 
 import os
+import sys
+main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
+data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
+sys.path.append(main_directory)
+
 import tempfile
 
 import pytest
