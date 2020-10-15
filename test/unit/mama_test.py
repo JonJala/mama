@@ -64,5 +64,5 @@ class TestSSInputTuple:
         with pytest.raises(FileNotFoundError):
             mama.ss_input_tuple(input_string)
 
-# TODO(jonbjala) Test input_file(), input_prefix(), and reg_ex()
+# TODO(jonbjala) Test input_file(), input_prefix(), reg_ex(), input_np_matrix(), and glob_path()
 # TODO(jonbjala) Test to_flag(), to_arg(), format_terminal_call(), and get_user_inputs()

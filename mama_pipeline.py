@@ -98,6 +98,8 @@ MAMA_STD_FILTER_FUNCS = {
         },
     }
 
+# Maximum number of RS IDs to log at one time unless log level is debug
+MAX_RSID_LOG = 50
 
 # Derived Constants###########################
 
@@ -250,7 +252,7 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
 
 #################################
 # TODO(jonbjala) Allowing specifying population order?  For now go with order in sumstats dictionary
-def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
+def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
                   re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
                   filters: Dict[str, Tuple[Filter, str]] = MAMA_STD_FILTERS,
@@ -263,7 +265,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     Runs the steps in the overall MAMA pipeline
 
     :param sumstats: Dictionary of population identifier -> filename or DataFrame
-    :param ldscores: Filename or DataFrame for the LD scores
+    :param ldscore_list: List of filenames and/or DataFrames of LD scores (will be concatenated)
     :param column_maps: Dictionary containing any column mappings indexed by population identifier
                         (same as used for sumstats parameter).  If none exists, the re_expr_map
                         will be used to determine column mappings
@@ -276,10 +278,11 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                                               the same dictionary passed in, but with updated
                                               summary statistics)
     """
-    # TODO(jonbjala) Move reading files back out to mama.py?
+
     # Check / read in LD scores and then QC
-    logging.info("\nReading in and running QC on LD Scores.")
-    ldscores = obtain_df(ldscores, "LD scores")
+    logging.info("\nReading in and running QC on LD Scores")
+    logging.debug("\nList of files: %s", ldscore_list)
+    ldscores = pd.concat((obtain_df(f, "LD Scores") for f in ldscore_list), ignore_index=True)
     ldscores = qc_ldscores(ldscores)
 
     # Check / read in summary stats and then QC
@@ -315,7 +318,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
                                                             se_prod_fixed_opt=se_prod_opt,
                                                             int_fixed_opt=int_opt)
 
-    # Log coefficients at debug level
+    # Log coefficients at debug level (and write coefficients to disk if option is selected)
     logging.debug("Regression coefficients (LD):\n%s", ld_coef)
     logging.debug("Regression coefficients (Intercept):\n%s", const_coef)
     logging.debug("Regression coefficients (SE^2):\n%s", se2_coef)
@@ -336,10 +339,13 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscores: Any,
     sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
     omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
     omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops later
+    os_drop_rsids = ldscores.index[omega_sigma_1d_drops].to_list()
+    num_os_drops = len(os_drop_rsids)
     logging.info("Dropped %s SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
-                 omega_sigma_1d_drops.sum())
-    if logging.root.level <= logging.DEBUG:
-        logging.debug("\tRS IDs = %s", ldscores.index[omega_sigma_1d_drops].to_list())
+                 num_os_drops)
+    max_rs_len = MAX_RSID_LOG if logging.root.level > logging.DEBUG else num_os_drops
+    logging.info("\tRS IDs = %s", os_drop_rsids + ["..."]
+                 if num_os_drops > max_rs_len else os_drop_rsids)
 
     # Run the MAMA method
     # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy

@@ -5,6 +5,7 @@ Python tool for multi-ancestry, multi-trait analysis
 """
 
 import argparse as argp
+import glob
 import itertools
 import logging
 import os
@@ -89,6 +90,18 @@ HEADER = """
 
 
 # Functions ##################################
+
+#################################
+def numpy_err_handler(err: str, flag: bytes):
+    """
+    Function that numpy should call when an error occurs.  This is used to ensure that any errors
+    are also logged, as opposed to just going to stderr and not being collected in the log
+
+    :param err: String describing the error
+    :param flag: A byte describing the error (see numpy.seterrcall() docs)
+    """
+    logging.error("Received Numpy error: %s", err)
+
 
 #################################
 def reg_ex(s:str) -> str:
@@ -184,6 +197,20 @@ def input_np_matrix(s:str) -> np.ndarray:
     return np.fromfile(filename, sep='\t')
 
 
+def glob_path(s:str) -> List[str]:
+    """
+    Used for parsing some inputs to this program, namely glob paths (see Python glob module docs).
+
+    :param s: String passed in by argparse
+
+    :return: List of file paths
+    """
+    file_path_list = glob.glob(s)
+    if not file_path_list:
+        raise RuntimeError("Glob string \"%s\" matches with no files." % s)
+    return [os.path.abspath(f) for f in file_path_list]
+
+
 #################################
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
     """
@@ -211,8 +238,11 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              "for a given summary statistics file are used in combination as a "
                              "unique identifier.  Currently, these are all case sensitive." %
                              (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
-    in_opt.add_argument("--ld-scores", type=str, required=True, metavar="FILE",
-                        help="Path to LD scores file.  Columns are assumed to be of the form "
+    in_opt.add_argument("--ld-scores", type=glob_path, required=True, metavar="GLOB_PATH",
+                        help="Path to LD scores file(s).  See python glob module for documentation "
+                             "on the string to be provided here (full path with support for \"*\", "
+                             "\"?\", and \"[]\").  This string should be encased in quotes.  "
+                             "Note: File columns are assumed to be of the form "
                              "ANC1_ANC2, where ANC1 and ANC2 are ancestries.  Matching is case "
                              "sensitive, so these should match exactly to the ancestries passed "
                              "in via the --sumstats flag.")
@@ -340,7 +370,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                    help="This option adds to the default (case-insenstive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
-                                        "Use any valid Python re module string."
+                                        "Use any valid Python re module string.  "
                                         "Mutually exclusive with other --*-%s-col-match options " %
                                         (MAMA_RE_EXPR_MAP[col], col, col.lower()))
         col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="REGEX", type=reg_ex,
@@ -482,9 +512,9 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     # Log header and other information (include parsed, user-specified args at debug level)
     # Note: This is done at WARNING level to ensure it's displayed
     logging.info(HEADER)
-    logging.info("See full log at: %s\n", log_file)
-    logging.info("Program executed via:\n%s\n", format_terminal_call(argv))
-    logging.debug("Program was called with the following arguments:\n%s", user_args)
+    logging.info("See full log at: %s\n", os.path.abspath(log_file))
+    logging.info("\nProgram executed via:\n%s\n", format_terminal_call(argv))
+    logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
 
     return parsed_args, user_args, parser
 
@@ -520,19 +550,20 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     # TODO(jonbjala) Verify directory permissions for output?
     out_dir = os.path.dirname(pargs.out)
 
-    # Validate columns of the LD scores file
-    ld_cols = set(
-        pd.read_csv(pargs.ld_scores, sep=None, engine='python', nrows=1, comment="#").columns)
-    ancestries = {a for ss_file, a, p in pargs.sumstats}
-    anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
-    missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
-        if not("%s_%s" % anc_tuple in ld_cols or "%s_%s" % anc_tuple[::-1] in ld_cols)}
-    if missing_ld_pair_cols:
-        raise RuntimeError("The LD scores file %s is missing columns for the following "
-                           "ancestry pairs: %s" % (pargs.ld_scores, missing_ld_pair_cols))
-    if SNP_COL not in ld_cols:
-        raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
-                           (pargs.ld_scores, SNP_COL))
+    # Validate columns of the LD scores file(s)
+    for ld_score_file in pargs.ld_scores:
+        ld_cols = set(
+            pd.read_csv(ld_score_file, sep=None, engine='python', nrows=1, comment="#").columns)
+        ancestries = {a for ss_file, a, p in pargs.sumstats}
+        anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
+        missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
+            if not("%s_%s" % anc_tuple in ld_cols or "%s_%s" % anc_tuple[::-1] in ld_cols)}
+        if missing_ld_pair_cols:
+            raise RuntimeError("The LD scores file %s is missing columns for the following "
+                               "ancestry pairs: %s" % (ld_score_file, missing_ld_pair_cols))
+        if SNP_COL not in ld_cols:
+            raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
+                               (ld_score_file, SNP_COL))
 
     # Construct RE map for sumstats column matching (must be done before verifying sumstats columns)
     re_map = MAMA_RE_EXPR_MAP.copy()
@@ -580,7 +611,6 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     #   1) LD coefs
     ld_coef_matrix = getattr(pargs, "reg_ld_coef", None)
     if ld_coef_matrix is not None:
-        print("JJ: \n", ld_coef_matrix)
         if len(ld_coef_matrix) != num_pops * num_pops:
             raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
                                "(LD) but got %s." % (num_pops_sq, len(ld_coef_matrix)))
@@ -656,6 +686,10 @@ def main_func(argv: List[str]):
 
     # Perform argument parsing and program setup
     parsed_args, user_args, parser = setup_func(argv, get_mama_parser)
+
+    # Set Numpy error handling to shunt error messages to a logging function
+    np.seterr(all='call')
+    np.seterrcall(numpy_err_handler)
 
     # Execute the rest of the program, but catch and log exceptions before failing
     try:

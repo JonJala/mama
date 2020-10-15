@@ -38,7 +38,7 @@ BASES = set(COMPLEMENT.keys())
 
 
 # Maximum number of RS IDs to show in lists when not as debug level
-MAX_RSID_LOGGING = 10
+MAX_RSID_LOGGING = 50
 
 # Functions ##################################
 
@@ -82,8 +82,8 @@ def qc_sumstats(sumstats_df: pd.DataFrame, filters: FilterMap,
 
     # Make sure allele columns and chromosome column are upper case
     df[A1_COL] = df[A1_COL].str.upper()
-    df[A2_COL] = df[A1_COL].str.upper()
-    df[CHR_COL] = df[SNP_COL].str.upper()
+    df[A2_COL] = df[A2_COL].str.upper()
+    df[CHR_COL] = df[CHR_COL].astype(str).str.upper()
 
     # Run filters and drop rows
     cumulative_drop_indices, filt_drop_indices = run_filters(df, filters)
@@ -253,10 +253,13 @@ def process_sumstats(initial_df: pd.DataFrame, re_expr_map: Dict[str, str],
     for filt_name, filt_drops in per_filt_drop_map.items():
         logging.info("\nFiltered out %d SNPs with \"%s\" (%s)", len(filt_drops), filt_name,
                      filters.get(filt_name, (0, "No description available"))[1])
-        logging.info("\tRS IDs = %s", filt_drops[:min(max_rs_len, len(filt_drops))])
+        rsids = filt_drops[:min(max_rs_len, len(filt_drops))]
+        logging.info("\tRS IDs = %s", rsids + ["..."] if len(filt_drops) > max_rs_len else rsids)
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
     logging.info("Additionally dropped %d duplicate SNPs", len(dups))
-    logging.info("\tRS IDs = %s\n", dups[:min(max_rs_len, len(dups))])
+    rsids = dups[:min(max_rs_len, len(dups))]
+    logging.info("\tRS IDs = %s\n", rsids + ["..."] if len(dups) > max_rs_len else rsids)
 
     return qc_df
+    
