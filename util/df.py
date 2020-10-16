@@ -6,8 +6,9 @@ Python functions to process maps and dataframes
 
 import collections
 import functools
+import logging
 import re
-from typing import Callable, Dict, List, Sequence, Set, Tuple
+from typing import Callable, Dict, List, Sequence, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -28,27 +29,61 @@ FilterMap = Dict[str, Filter]
 # Functions ##################################
 
 #################################
-def run_filters(df: pd.DataFrame, filters: FilterMap) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+def safe_filter(df: pd.DataFrame, filter_name: str, filter_func: Filter) -> Union[pd.Series, None]:
+    """
+    Runs a filter wrapped in a try-except block.  This should be used for filters that might not
+    successfully run (e.g. optional filters that reference columns that may not be present)
+
+    :param df: Dataframe holding data
+    :param filter_name: Name of filter to run
+    :param filter_func: Filter function to run
+
+    :return: Either a pd.Series of booleans to indicate which rows are caught by the filter, or None
+             (None is in the case that the filter did not run successfully, for whatever reason)
+    """
+    try:
+        return filter_func(df)
+    except Exception as e:
+        logging.debug("Caught exception when trying to run filter %s: %s", filter_name, e)
+    return None  # This will happen without a return statement, but this is to be explicit about it
+
+
+#################################
+def run_filters(df: pd.DataFrame, req_filters: FilterMap,
+                opt_filters: FilterMap = dict()) -> Tuple[pd.Series, Dict[str, pd.Series]]:
     """
     Runs a list of filters on the input dataframe, returning a dictionary of Boolean Series
     indicating which rows were caught by the filters and the Boolean Series corresponding
-    to the union of all filtering
+    to the union of all filtering.  Required filters will propagate an exception if thrown.
+    Optional filters will have the exception caught and map to None in the return map.  Any None
+    results will be ignored when creating the cumulative_indices.
 
-    :param sumstats_df: Dataframe holding data
-    :param filters: Dictionary of filter name -> filter function
+    :param df: Dataframe holding data
+    :param req_filters: Dictionary of filter name -> filter function (required, see above)
+    :param opt_filters: Dictionary of filter name -> filter function (optional, see above)
 
     :return: Tuple containing:
-             1) The indices of the union of rows being dropped, and
+             1) The indices of the union of rows being dropped (as boolean Series), and
              2) A dictionary mapping filter name (same as the key in "filters" input parameter)
                 to an ordered collection (pd.Series) of booleans indicating which rows were caught
                 by the associated filter
     """
-    # Run the individual filters
-    filt_results = {filter_name : filter_func(df) for filter_name, filter_func in filters.items()}
+    # Run the required filters
+    filt_results = {filter_name : filter_func(df)
+                    for filter_name, filter_func in req_filters.items()}
+
+    # Run the optional filters
+    opt_filt_results = {filter_name : safe_filter(df, filter_name, filter_func)
+                        for filter_name, filter_func in opt_filters.items()}
+
+    # Update the filter result map
+    filt_results.update(opt_filt_results)
 
     # Figure out the indices of the union of SNPs caught by all the filters
     all_false = pd.Series(data=np.full(len(df), False), index=df.index)
-    cumulative_indices = functools.reduce(lambda s1, s2: s1 | s2, filt_results.values(), all_false)
+    cumulative_indices = functools.reduce(lambda s1, s2: s1 | s2,
+                                          [v for v in filt_results.values()
+                                           if not v is None], all_false)
 
     return cumulative_indices, filt_results
 

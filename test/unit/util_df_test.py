@@ -52,8 +52,6 @@ def rename_test_df():
 
 class TestRunFilters:
 
-    # TODO(jonbjala) Test filter that examines a column that's not present! / a filter that throws
-
     #########
     def test__single_filt__return_expected_results(self, runfilter_test_df):
 
@@ -140,7 +138,7 @@ class TestRunFilters:
 
 
     #########
-    def test__np_filt_or_useless_filt__no_change(self, runfilter_test_df):
+    def test__no_filt_or_useless_filt__no_change(self, runfilter_test_df):
 
         # BEFORE: Copy dataframe
         df_copy1 = runfilter_test_df.copy()
@@ -199,6 +197,85 @@ class TestRunFilters:
         assert not any(filt_map[func_name])
         assert not any(result_indices)
 
+
+    #########
+    def test__legit_optional_filt__return_expected_results(self, runfilter_test_df):
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int1 = 0
+        target_int2 = runfilter_test_df.size - 1
+        expected_indices1 = (runfilter_test_df == target_int1).any(axis='columns')
+        expected_indices2 = (runfilter_test_df == target_int2).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once
+        assert expected_indices1.sum() == 1
+        assert expected_indices2.sum() == 1
+
+        # Filter the dataframe
+        func_name1 = "Hello"
+        func_name2 = "World"
+        result_indices, filt_map = df_util.run_filters(runfilter_test_df,
+            {func_name1 : lambda df: (df == target_int1).any(axis='columns')},
+            {func_name2 : lambda df: (df == target_int2).any(axis='columns')})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 2
+        assert func_name1 in filt_map
+        assert func_name2 in filt_map
+
+        #   Confirm result indices correct
+        assert filt_map[func_name2] is not None
+        assert all(result_indices == filt_map[func_name1] | filt_map[func_name2])
+        assert result_indices.sum() == 2
+
+    #########
+    def test__failed_optional_filt__return_expected_results(self, runfilter_test_df):
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int1 = 0
+        target_int2 = runfilter_test_df.size - 1
+        expected_indices1 = (runfilter_test_df == target_int1).any(axis='columns')
+        expected_indices2 = (runfilter_test_df == target_int2).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once
+        assert expected_indices1.sum() == 1
+        assert expected_indices2.sum() == 1
+
+        # Filter the dataframe
+        func_name1 = "Hello"
+        func_name2 = "World"
+        result_indices, filt_map = df_util.run_filters(runfilter_test_df,
+            {func_name1 : lambda df: (df == target_int1).any(axis='columns')},
+            {func_name2 : lambda df: x / 0})
+
+        # AFTER:
+        #   Confirm filt_map correct
+        assert len(filt_map) == 2
+        assert func_name1 in filt_map
+        assert func_name2 in filt_map
+
+        #   Confirm result indices correct
+        assert filt_map[func_name2] is None
+        assert all(result_indices == filt_map[func_name1])
+        assert result_indices.sum() == 1
+
+
+    #########
+    def test__failed_req_filt__throws_error(self, runfilter_test_df):
+
+        # Identify value whose row to filter out and the expected filtering indices
+        target_int = runfilter_test_df.size // 2
+        expected_indices = (runfilter_test_df == target_int).any(axis='columns')
+
+        # BEFORE: Confirm dataframe contains the target int once and has the correct number of rows
+        assert expected_indices.sum() == 1
+
+        # Filter the dataframe
+        func_name = "Hello, world"
+        with pytest.raises(ZeroDivisionError):
+            result_indices, filt_map = df_util.run_filters(runfilter_test_df,
+                                                           {func_name : lambda df: 1 / 0})
 
 ###########################################
 
@@ -308,6 +385,7 @@ class TestDetermineColumnMapping:
     #########
     def test__req_col_not_matched__throw_error(self):
         # Without required columns, this should succeed and match everything but 1
+        # (that column is, in effect, optional)
         res = df_util.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
             TestDetermineColumnMapping._RE_MAP_MISSING)
         assert len(res) == len(TestDetermineColumnMapping._RE_MAP_MISSING) - 1
@@ -317,6 +395,15 @@ class TestDetermineColumnMapping:
             df_util.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
                 TestDetermineColumnMapping._RE_MAP_MISSING,
                 set(TestDetermineColumnMapping._RE_MAP_MISSING.keys()))
+
+    #########
+    def test__optional_col_matches__is_in_result_map(self):
+        # Remove one required element (it will still match, just not be required)
+        req_cols = set(list(TestDetermineColumnMapping._RE_MAP_HAPPY_1.keys())[1:])
+
+        res = df_util.determine_column_mapping(TestDetermineColumnMapping._ORIG_COLS,
+            TestDetermineColumnMapping._RE_MAP_HAPPY_1, req_cols)
+        assert len(res) == len(TestDetermineColumnMapping._RE_MAP_HAPPY_1)
 
 
 ###########################################

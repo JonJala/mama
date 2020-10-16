@@ -50,7 +50,7 @@ def valid_basic_pargs(temp_test_dir):
     phenotypes = ["PHEN" + str(p) for p in range(num_phen)]
 
     # Create the (empty except for column names) LD Scores file
-    ldscores_filename = os.path.join(tmp_dir_path, "ldscores.txt")
+    ldscores_filename = os.path.abspath(os.path.join(tmp_dir_path, "ldscores.txt"))
     ld_anc_cols = ["%s_%s" % anc_tuple
                    for anc_tuple in itertools.combinations_with_replacement(ancestries, 2)]
     ld_cols = ld_anc_cols + [ss.SNP_COL]
@@ -70,7 +70,7 @@ def valid_basic_pargs(temp_test_dir):
     # Set namespace attributes
     pargs.out = os.path.join(tmp_dir_path, 'test_prefix')
     pargs.sumstats = [(f,a,p) for ((a,p), f) in ss_files.items()]
-    pargs.ld_scores = ldscores_filename
+    pargs.ld_scores = [ldscores_filename]
 
     return pargs
 
@@ -119,7 +119,7 @@ class TestValidateInputs:
         n = copy.copy(valid_basic_pargs)
 
         # Remove column from LD scores file
-        ld_df = pd.read_csv(n.ld_scores, sep=None, engine='python', nrows=1, comment="#")
+        ld_df = pd.read_csv(n.ld_scores[0], sep=None, engine='python', nrows=1, comment="#")
         ld_cols = ld_df.columns
         ld_pair_cols = [col for col in ld_cols if "_" in col]
 
@@ -128,7 +128,7 @@ class TestValidateInputs:
         ld_df.drop([dropped_col], axis=1, inplace=True)
         bad_ldscores_file = os.path.join(temp_test_dir, 'missing_pair_col_ldscores.txt')
         ld_df.to_csv(bad_ldscores_file, sep="\t", index=False)
-        n.ld_scores = bad_ldscores_file
+        n.ld_scores = [bad_ldscores_file]
 
         with pytest.raises(RuntimeError) as ex_info:
             mama.validate_inputs(n, dict())
@@ -142,7 +142,7 @@ class TestValidateInputs:
         n = copy.copy(valid_basic_pargs)
 
         # Remove column from LD scores file
-        ld_df = pd.read_csv(n.ld_scores, sep=None, engine='python', nrows=1, comment="#")
+        ld_df = pd.read_csv(n.ld_scores[0], sep=None, engine='python', nrows=1, comment="#")
         ld_cols = ld_df.columns
         ld_pair_cols = [col for col in ld_cols if "_" in col]
 
@@ -150,7 +150,7 @@ class TestValidateInputs:
         bad_ldscores_file = os.path.join(temp_test_dir, 'missing_snp_col_ldscores.txt')
         ld_df.drop([dropped_col], axis=1, inplace=True)
         ld_df.to_csv(bad_ldscores_file, sep="\t", index=False)
-        n.ld_scores = bad_ldscores_file
+        n.ld_scores = [bad_ldscores_file]
 
         with pytest.raises(RuntimeError) as ex_info:
             mama.validate_inputs(n, dict())
