@@ -38,8 +38,11 @@ import subprocess
 import copy
 import argparse
 
-from legacy import mama_ldcalc as ld
-from legacy import mama_parse as ps
+# these imports don't work as written
+# from legacy import mama_ldcalc as ld
+# from legacy import mama_parse as ps
+import mama_ldcalc as ld
+import mama_parse as ps
 
 __version__ = '1.0.0'
 
@@ -678,7 +681,8 @@ def estimate_LD_score_MAMA(args):
     # print .M_5_50
     np.save(args.out + '.'+ file_suffix +'.M_5_50', M_5_50)
 
-    logging.info('MAMA score estimation completed. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
+    # start_time isn't defined in this method
+    # logging.info('MAMA score estimation completed. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
     return df
 
@@ -734,7 +738,10 @@ advanced_opt.add_argument('--ldBlockSize', default=False, action='store_true',
 
 
 def main_func(argv):
-    args = parser.parse_args(argv)
+    # I feel like this came up in PGI, I forget what the solution is but passing everything in sys.argv
+    # also includes the path to the script itself, so you get an error that mama_ldscore.py isn't an accepted flag.
+    print(argv)
+    args = parser.parse_args(argv[1:])
 
     logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
     if args.stream_stdout:
