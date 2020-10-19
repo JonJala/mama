@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from core_mama import (create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega,
                        qc_sigma)
@@ -17,9 +18,9 @@ from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT
                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
 from util.df import Filter, intersect_indices
 from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
-                           A2_COL, P_COL, INFO_COL, N_COL, COMPLEMENT, BASES, MAX_RSID_LOGGING,
-                           create_freq_filter, create_chr_filter, standardize_all_sumstats,
-                           process_sumstats)
+                           A2_COL, P_COL, INFO_COL, N_COL, Z_COL, COMPLEMENT, BASES,
+                           MAX_RSID_LOGGING, create_freq_filter, create_chr_filter,
+                           standardize_all_sumstats, process_sumstats)
 
 
 # Constants / Parameters / Types #############
@@ -62,6 +63,7 @@ CHR_FILTER = 'CHR VALUES'
 SNP_DUP_ALL_FILTER = 'DUPLICATE ALLELE SNPS'
 SNP_PALIN_FILT = 'PALINDROMIC SNPS'
 SNP_INVALID_ALLELES_FILTER = 'INVALID ALLELES'
+SNP_NEGATIVE_P_FILTER = 'NEGATIVE GWAS P'
 MAMA_STD_FILTER_FUNCS = {
     NAN_FILTER :
         {
@@ -100,6 +102,11 @@ MAMA_STD_FILTER_FUNCS = {
             'func' : lambda df: ~df[A1_COL].isin(BASES) | ~df[A2_COL].isin(BASES),
             'description' : "Filters out SNPs with alleles not in %s" % BASES
         },
+    SNP_NEGATIVE_P_FILTER :
+        {
+            'func' : lambda df: df[P_COL].lt(0.0),
+            'description' : "Filters out SNPs with negative GWAS P values"
+        },
     }
 
 # Column name to rename N column to if it exists (to help resolve ambiguity since there should be
@@ -117,6 +124,10 @@ N_EFF_COL = "N_EFF"
 MAMA_STD_FILTERS = {fname : (finfo['func'], finfo['description'])
                     for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
 
+# Calculate constants used in determination of P values for MAMA
+ln = np.log
+LN_2 = ln(2.0)
+RECIP_LN_10 = np.reciprocal(ln(10.0))
 
 # Functions ##################################
 
@@ -193,7 +204,7 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     if snp_list is not None:
         logging.info("Restricting to user-supplied SNP list (%s SNPs)...", len(snp_list))
         snp_intersection = snp_intersection.intersection(snp_list)
-    logging.info("\nNumber of SNPS in initial intersection of all sources: %s",
+    logging.info("\n\nNumber of SNPS in initial intersection of all sources: %s",
                  len(snp_intersection))
 
     # Reduce each DF down to the SNP intersection
@@ -281,6 +292,32 @@ def calculate_n_eff(pop: int, n_orig: np.ndarray, sigma: np.ndarray, se: np.ndar
 
 
 #################################
+def calculate_p(z: np.array) -> np.array:
+    """
+    Function that calculates P for the MAMA results
+
+    :param z: Z scores
+
+    :return: P values for MAMA
+             (as strings, to allow for very large negative exponents)
+    """
+    # Since P = 2 * normal_cdf(-|Z|), P = e ^ (log_normal_cdf(-|Z|) + ln 2)
+    # This can be changed to base 10 as P = 10 ^ ((log_normal_cdf(-|Z|) + ln 2) / ln 10)
+    log_10_p = RECIP_LN_10 * (norm.logcdf(-np.abs(z)) + LN_2)
+
+    # Break up the log based 10 of P values into the integer and fractional part
+    frac_part, int_part = np.modf(log_10_p)
+
+    # Construct strings for the P values
+    # 1) Add one to the fractional part to ensure that the result mantissa is between 1 and 10
+    # 2) Subtract one from the integer part to compensate and keep the overall value correct
+    result = np.char.add(np.char.add(np.power(10.0, (frac_part + 1.0)).astype(str), 'e'),
+                         (int_part - 1).astype(int).astype(str))
+
+    return result
+
+
+#################################
 # TODO(jonbjala) Allowing specifying population order?  For now go with order in sumstats dictionary
 def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], snp_list: str = None,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
@@ -311,15 +348,16 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     """
 
     # Check / read in LD scores and then QC
-    logging.info("\nReading in and running QC on LD Scores")
+    logging.info("\n\nReading in and running QC on LD Scores")
     logging.debug("\nList of files: %s", ldscore_list)
     ldscores = pd.concat((obtain_df(f, "LD Scores") for f in ldscore_list), ignore_index=True)
     ldscores = qc_ldscores(ldscores)
 
     # Check / read in summary stats and then QC
-    logging.info("\nReading in summary statistics.\n")
+    logging.info("\n\nReading in summary statistics.")
     for pop_id in sumstats.keys():
         # Read in if necessary (and update dictionary)
+        logging.info("\n\n")
         sumstats[pop_id] = obtain_df(sumstats[pop_id], str(pop_id) + " sumstats")
 
         # QC summary stats (along with some light validation and some logging of drops)
@@ -340,7 +378,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     # Harmonize the summary stats and LD scores (write to disk if requested)
     harmonize_all(sumstats, ldscores, snp_list)
     if harmonized_file_fstr:
-        logging.info("\nWriting harmonized summary statistics to disk.\n")
+        logging.info("\n\nWriting harmonized summary statistics to disk.\n")
         for (ancestry, phenotype), harm_ss_df in sumstats.items():
             filename = harmonized_file_fstr % (ancestry, phenotype)
             logging.debug("\t%s", filename)
@@ -350,16 +388,16 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
 
     # Run LD score regressions
-    logging.info("\nRunning LD Score regression.")
+    logging.info("\n\nRunning LD Score regression.")
     ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr,
                                                             ld_fixed_opt=ld_opt,
                                                             se_prod_fixed_opt=se_prod_opt,
                                                             int_fixed_opt=int_opt)
 
     # Log coefficients at debug level (and write coefficients to disk if option is selected)
-    logging.debug("Regression coefficients (LD):\n%s", ld_coef)
-    logging.debug("Regression coefficients (Intercept):\n%s", const_coef)
-    logging.debug("Regression coefficients (SE^2):\n%s", se2_coef)
+    logging.info("Regression coefficients (LD):\n%s", ld_coef)
+    logging.info("Regression coefficients (Intercept):\n%s", const_coef)
+    logging.info("Regression coefficients (SE^2):\n%s", se2_coef)
     if reg_coef_fstr:
         logging.info("\nWriting regression coefficients to disk.\n")
         ld_coef.tofile(reg_coef_fstr % "ld", sep='\t')
@@ -367,55 +405,83 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         se2_coef.tofile(reg_coef_fstr % "se2", sep='\t')
 
     # Calculate Omegas and Sigmas
-    logging.info("\nCreating omega and sigma matrices.")
+    logging.info("\n\nCreating omega and sigma matrices.")
     omega = create_omega_matrix(ldscore_arr, ld_coef)
     sigma = create_sigma_matrix(se_arr, se2_coef, const_coef)
 
     # Check omega and sigma for validity based on positive (semi-)definiteness
     # Create drop arrays shapes that allow for broadcasting and comparison later
-    omega_valid = qc_omega(omega).reshape((omega.shape[0], 1, 1))
-    sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
-    print("JJ: OMEGA INVALID SUM = ", np.logical_not(omega_valid.ravel()).sum())
-    print("JJ: SIGMA INVALID SUM = ", np.logical_not(sigma_valid.ravel()).sum())
-    print("JJ: Invalid omega rsIDs =\n", ldscores.index[np.logical_not(omega_valid.ravel())])
-    print("JJ: Invalid sigma rsIDs =\n", ldscores.index[np.logical_not(sigma_valid.ravel())])
-    print("JJ: Invalid omegas =\n", omega[np.logical_not(omega_valid.ravel()), :, :])
-    print("JJ: Invalid sigmas =\n", sigma[np.logical_not(sigma_valid.ravel()), :, :])
-    print("JJ: LDScores for invalid omegas=\n", ldscore_arr[np.logical_not(omega_valid.ravel()), :, :])
+    omega_drops = np.logical_not(qc_omega(omega))
+    sigma_drops = np.logical_not(qc_sigma(sigma))
+    omega_sigma_drops = np.logical_or(omega_drops, sigma_drops)
 
-    omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
-    omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops later
-    os_drop_rsids = ldscores.index[omega_sigma_1d_drops].to_list()
-    num_os_drops = len(os_drop_rsids)
-    logging.info("Dropped %s SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
-                 num_os_drops)
-    max_rs_len = MAX_RSID_LOGGING if logging.root.level > logging.DEBUG else num_os_drops
-    logging.info("\tRS IDs = %s", os_drop_rsids + ["..."]
-                 if num_os_drops > max_rs_len else os_drop_rsids)
+    logging.info("Dropped %s SNPs due to non-positive-semi-definiteness of omega.",
+                 omega_drops.sum())
+    if logging.root.level <= logging.DEBUG:
+        omega_drop_rsids = ldscores.index[omega_drops].to_list()
+        logging.debug("\tRS IDs = %s", omega_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
+                      if len(omega_drop_rsids) > MAX_RSID_LOGGING else omega_drop_rsids)
+    logging.info("Dropped %s SNPs due to non-positive-definiteness of sigma.",
+                 sigma_drops.sum())
+    if logging.root.level <= logging.DEBUG:
+        sigma_drop_rsids = ldscores.index[sigma_drops].to_list()
+        logging.debug("\tRS IDs = %s", sigma_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
+                      if len(sigma_drop_rsids) > MAX_RSID_LOGGING else sigma_drop_rsids)
+    logging.info("Dropped %s total SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
+                 omega_sigma_drops.sum())
+    if logging.root.level <= logging.DEBUG:
+        os_drop_rsids = ldscores.index[omega_sigma_drops].to_list()
+        logging.debug("\tRS IDs = %s", os_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
+                      if len(os_drop_rsids) > MAX_RSID_LOGGING else os_drop_rsids)
+    os_drops_reshaped = omega_sigma_drops.reshape((ldscore_arr.shape[0], 1, 1))
 
     # Run the MAMA method
     # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy
-    logging.info("\nRunning main MAMA method.")
+    logging.info("\n\nRunning main MAMA method.")
     new_betas, new_beta_ses = run_mama_method(beta_arr,
-                              np.where(omega_sigma_drops, np.identity(omega.shape[1]), omega),
-                              np.where(omega_sigma_drops, np.identity(sigma.shape[1]), sigma))
+                              np.where(os_drops_reshaped, np.identity(omega.shape[1]), omega),
+                              np.where(os_drops_reshaped, np.identity(sigma.shape[1]), sigma))
 
     # Copy values back to the summary statistics DataFrames
     # Also, perform any remaining calculations / formatting
     logging.info("\nPreparing results for output.")
     final_snp_count = 0
     for pop_num, ((ancestry, phenotype), ss_df) in enumerate(sumstats.items()):
-        ss_df[BETA_COL] = new_betas[:, pop_num]
-        ss_df[SE_COL] = new_beta_ses[:, pop_num]
+        logging.info("\tPopulation %s: %s", pop_num, (ancestry, phenotype))
+        new_df_data_list = [(CHR_COL, ss_df[CHR_COL]),
+                            (BP_COL, ss_df[BP_COL]), (A1_COL, ss_df[A1_COL]),
+                            (A2_COL, ss_df[A2_COL]), (FREQ_COL, ss_df[FREQ_COL])]
 
+        # Update the betas and standard errors
+        new_df_data_list.append((BETA_COL, new_betas[:, pop_num]))
+        new_df_data_list.append((SE_COL, new_beta_ses[:, pop_num]))
+
+        # Calculate Z score
+        z_scores = ss_df[BETA_COL] / ss_df[SE_COL]
+        mean_chi_2 = np.square(z_scores).mean()
+        logging.info("\t\tMean Chi^2 for %s = %s", (ancestry, phenotype), mean_chi_2)
+        new_df_data_list.append((Z_COL, z_scores))
+
+        # Calculate P column
+        new_df_data_list.append((P_COL, calculate_p(z_scores.to_numpy())))
+
+        # Calculate effective N
         if N_COL in ss_df.columns:
-            ss_df[N_EFF_COL] = calculate_n_eff(pop_num, ss_df[N_COL].to_numpy(),
-                                               sigma, new_beta_ses[:, pop_num])
-            ss_df.rename(columns={N_COL : ORIGINAL_N_COL_RENAME}, inplace=True)
+            new_df_data_list.append((N_EFF_COL, calculate_n_eff(pop_num, ss_df[N_COL].to_numpy(),
+                                                                sigma, new_beta_ses[:, pop_num])))
+            new_df_data_list.append((ORIGINAL_N_COL_RENAME, ss_df[N_COL]))
 
-        ss_df.drop(ss_df.index[omega_sigma_1d_drops], inplace=True)
-        ss_df.sort_values(by=[CHR_COL, BP_COL], inplace=True)
-        final_snp_count = len(ss_df)
+        # Construct the output dataframe
+        new_df = pd.DataFrame(data=dict(new_df_data_list), index=ss_df.index)
+
+        # Drop SNPs due to omega / sigma, and sort by BP and CHR
+        new_df.drop(new_df.index[omega_sigma_drops], inplace=True)
+        new_df.sort_values(by=[CHR_COL, BP_COL], inplace=True)
+        final_snp_count = len(new_df)
+
+        # Replace the old dataframe with the new one
+        sumstats[(ancestry, phenotype)] = new_df
+
     logging.info("\nFinal SNP count = %s", final_snp_count)
 
     return sumstats

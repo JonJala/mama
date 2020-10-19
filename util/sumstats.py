@@ -28,6 +28,7 @@ A2_COL = 'A2'
 P_COL = 'P'
 INFO_COL = 'INFO'
 N_COL = 'N'
+Z_COL = 'Z'
 
 
 # Construct useful base-pair related constant sets / maps
@@ -247,21 +248,23 @@ def process_sumstats(initial_df: pd.DataFrame, re_expr_map: Dict[str, str],
                                (missing_req_cols, column_map))
 
     # Run QC on the df
-    logging.info("\nInitial number of SNPs / rows = %s", len(initial_df))
+    logging.info("\nInitial number of SNPs / rows = %s\n", len(initial_df))
     filter_map = {f_name : f_func for (f_name, (f_func, f_desc)) in filters.items()}
     qc_df, drop_indices, per_filt_drop_map, dups = qc_sumstats(initial_df, filter_map, column_map)
 
     # Log SNP drop info
     max_rs_len = MAX_RSID_LOGGING if logging.root.level > logging.DEBUG else len(drop_indices)
     for filt_name, filt_drops in per_filt_drop_map.items():
-        logging.info("\nFiltered out %d SNPs with \"%s\" (%s)", len(filt_drops), filt_name,
+        logging.info("Filtered out %d SNPs with \"%s\" (%s)", len(filt_drops), filt_name,
                      filters.get(filt_name, (0, "No description available"))[1])
-        rsids = filt_drops[:min(max_rs_len, len(filt_drops))]
-        logging.debug("\tRS IDs = %s", rsids + ["..."] if len(filt_drops) > MAX_RSID_LOGGING else rsids)
-    logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
+        if logging.root.level <= logging.DEBUG:
+            logging.debug("\tRS IDs = %s", filt_drops[:MAX_RSID_LOGGING] + ["..."]
+                      if len(filt_drops) > MAX_RSID_LOGGING else filt_drops)
+    logging.info("\n\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
     logging.info("Additionally dropped %d duplicate SNPs", len(dups))
-    rsids = dups[:min(max_rs_len, len(dups))]
-    logging.info("\tRS IDs = %s\n", rsids + ["..."] if len(dups) > max_rs_len else rsids)
+    if logging.root.level <= logging.DEBUG:
+            logging.debug("\tRS IDs = %s", dups[:MAX_RSID_LOGGING] + ["..."]
+                      if len(dups) > MAX_RSID_LOGGING else dups)
 
     return qc_df

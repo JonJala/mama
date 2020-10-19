@@ -56,6 +56,7 @@ def tweak_omega(omega_slice: np.ndarray) -> np.ndarray:
 
 
 #################################
+# TODO(jonbjala) Return array indicating which omegas were tweaked?
 def qc_omega(omega: np.ndarray) -> np.ndarray:
     """
     Runs checks over the omega matrices for positive-semi-definiteness.  Tweaks omega where possible

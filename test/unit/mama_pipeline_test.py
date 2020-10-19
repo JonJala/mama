@@ -135,3 +135,58 @@ class TestCalculateNEff:
         ])
     def test__varying_inputs__return_expected(self, pop_num, n_orig, sigma, se, expected):
         assert np.allclose(mp.calculate_n_eff(pop_num, n_orig, sigma, se), expected)
+
+
+###########################################
+
+class TestCalculateP:
+
+    #########
+    # TODO(jonbjala) Need a few more cases
+    @pytest.mark.parametrize("z, expected_p_str",
+        [
+            (1.0, "3.1731e-1"),
+            (1.96, "5.0e-2")
+        ])
+    def test__varying_single_inputs__return_expected(self, z, expected_p_str):
+
+        # Call the function
+        result_p_str = mp.calculate_p(np.array(z))
+
+        # Check the mantissa and exponents separately
+        #     1) Split the result and expected strings into mantissas and exponents
+        expected_split = expected_p_str.split('e')
+        actual_split = result_p_str.item().split('e')
+        #     2) Convert back to numbers
+        expected_m = float(expected_split[0])
+        actual_m = float(actual_split[0])
+        expected_e = int(expected_split[1])
+        actual_e = int(actual_split[1])
+        #     3) Assert relationships (mantissas should be close, exponents should be exactly equal)
+        assert np.isclose(expected_m, actual_m, rtol=0.001, atol=0.001)
+        assert expected_e == actual_e
+
+    #########
+    # TODO(jonbjala) Need a few more cases
+    @pytest.mark.parametrize("z, expected_p_str",
+        [
+            ([1.0], ["3.1731e-1"]),
+            ([1.0, 1.0], ["3.1731e-1", "3.1731e-1"])
+        ])
+    def test__varying_list_inputs__return_expected(self, z, expected_p_str):
+
+        # Call the function
+        result_p_str = mp.calculate_p(np.array(z))
+
+        # Check the mantissa and exponents separately
+        #     1) Split the result and expected strings into mantissas and exponents
+        expected_splits = np.char.split(np.array(expected_p_str), 'e')
+        actual_splits = np.char.split(result_p_str, 'e')
+        #     2) Convert back to numbers
+        expected_m = np.array([float(expected[0]) for expected in expected_splits.tolist()])
+        actual_m = np.array([float(actual[0]) for actual in actual_splits.tolist()])
+        expected_e = np.array([int(expected[1]) for expected in expected_splits.tolist()])
+        actual_e = np.array([int(actual[1]) for actual in actual_splits.tolist()])
+        #     3) Assert relationships (mantissas should be close, exponents should be exactly equal)
+        assert np.allclose(expected_m, actual_m, rtol=0.001, atol=0.001)
+        assert np.array_equal(expected_e, actual_e)
