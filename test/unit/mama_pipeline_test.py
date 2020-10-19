@@ -121,3 +121,17 @@ class TestCollateDfValues:
     # TODO(jonbjala) Need to test a "mixed" case where there are multiple ancestries and phenotypes
 
 # TODO(jonbjala) Test qc_ldscores? obtain_df()?
+
+###########################################
+
+class TestCalculateNEff:
+
+    #########
+    # TODO(jonbjala) Need a few more cases
+    @pytest.mark.parametrize("pop_num, n_orig, sigma, se, expected",
+        [
+            (0, np.array([100, 1000, 5000]), np.full((3, 2, 2), 0.5 * np.identity(2)),
+                np.array([1.0, 0.5, 0.25]), np.array([50, 2000, 40000]))
+        ])
+    def test__varying_inputs__return_expected(self, pop_num, n_orig, sigma, se, expected):
+        assert np.allclose(mp.calculate_n_eff(pop_num, n_orig, sigma, se), expected)

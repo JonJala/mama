@@ -6,7 +6,7 @@ Python functions that implement the core MAMA processing
 
 import gc
 import logging
-from typing import Any, Dict, List, Set, Tuple
+from typing import Any, Dict, List, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -17,8 +17,9 @@ from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT
                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
 from util.df import Filter, intersect_indices
 from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
-                           A2_COL, COMPLEMENT, BASES, create_freq_filter, create_chr_filter,
-                           standardize_all_sumstats, process_sumstats)
+                           A2_COL, P_COL, INFO_COL, N_COL, COMPLEMENT, BASES, MAX_RSID_LOGGING,
+                           create_freq_filter, create_chr_filter, standardize_all_sumstats,
+                           process_sumstats)
 
 
 # Constants / Parameters / Types #############
@@ -28,19 +29,22 @@ PhenotypeId = Any
 PopulationId = Tuple[AncestryId, PhenotypeId]
 
 # Columns that MAMA requires
-MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL}
+MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL, BP_COL, P_COL}
 
 # Map of default regular expressions used to convert summary stat column names to standardized names
 # TODO(jonbjala) Refine these more, just use these values are placeholders for now
 MAMA_RE_EXPR_MAP = {
     SNP_COL : '.*SNP.*|.*RS.*',
-    BP_COL : '.*BP.*',
+    BP_COL : '.*BP.*|.*POS.*',
     CHR_COL : '.*CHR.*',
     BETA_COL : '.*BETA.*',
-    FREQ_COL : '.*FREQ.*|.*FRQ.*|AF.*',
+    FREQ_COL : '.*FREQ.*|.*FRQ.*|.*AF',
     SE_COL : '.*SE.*',
     A1_COL : '.*A1.*|.*MAJOR.*|.*EFFECT.*ALL.*|REF.*',
     A2_COL : '.*A2.*|.*MINOR.*|.*OTHER.*ALL.*|ALT.*',
+    P_COL : 'P|P.*VAL.*',
+    INFO_COL : 'INFO',
+    N_COL : 'N',
 }
 
 # Frequency filtering defaults
@@ -73,8 +77,8 @@ MAMA_STD_FILTER_FUNCS = {
         },
     SE_FILTER :
         {
-            'func' : lambda df: df[SE_COL].lt(0.0),
-            'description' : "Filters out SNPs with negative SE values"
+            'func' : lambda df: df[SE_COL].le(0.0),
+            'description' : "Filters out SNPs with non-positive SE values"
         },
     CHR_FILTER :
         {
@@ -98,8 +102,14 @@ MAMA_STD_FILTER_FUNCS = {
         },
     }
 
-# Maximum number of RS IDs to log at one time unless log level is debug
-MAX_RSID_LOG = 50
+# Column name to rename N column to if it exists (to help resolve ambiguity since there should be
+# an effective N column added)
+ORIGINAL_N_COL_RENAME = "N_ORIG"
+
+# Column name to rename N column to if it exists (to help resolve ambiguity since there should be
+# an effective N column added)
+N_EFF_COL = "N_EFF"
+
 
 # Derived Constants###########################
 
@@ -111,14 +121,14 @@ MAMA_STD_FILTERS = {fname : (finfo['func'], finfo['description'])
 # Functions ##################################
 
 #################################
-def obtain_df(possible_df: Any, id_val: Any) -> pd.DataFrame:
+def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any) -> pd.DataFrame:
     """
     Small helper function that handles functionality related to reading in a DataFrame
 
     :param possible_df: Should either be a string indicating the full path to a file to be
                         read into a DataFrame or the DataFrame itself.  All other possibilities will
                         result in this function raising an error
-    :param id_str: Used for logging / error-reporting to identify the data being read / checked
+    :param id_val: Used for logging / error-reporting to identify the data being read / checked
 
     :raises RuntimeError: If possible_df is not a string or pd.DataFrame
 
@@ -165,7 +175,8 @@ def qc_ldscores(ldscores_df: pd.DataFrame):
 
 
 #################################
-def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame):
+def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame,
+                  snp_list: pd.Index = None):
     """
     Does the harmonization between the QC'ed input summary statistics and the LD scores.  The
     DataFrames are all modified in place (SNPs/rows dropped and reference alleles transformed
@@ -174,10 +185,14 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     :param sumstats: Dictionary mapping a population id to a DataFrame holding the summary
                      stat information.  The DFs should all have been QCed already.
     :param ldscores: DataFrame of LD score information
+    :param snp_list: If specified, a Series containing rsIDs to which to restrict analysis
     """
 
     # Intersect all the SNP lists to get the SNPs all data sources have in common
     snp_intersection = intersect_indices(sumstats.values(), ldscores)
+    if snp_list is not None:
+        logging.info("Restricting to user-supplied SNP list (%s SNPs)...", len(snp_list))
+        snp_intersection = snp_intersection.intersection(snp_list)
     logging.info("\nNumber of SNPS in initial intersection of all sources: %s",
                  len(snp_intersection))
 
@@ -251,8 +266,23 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
 
 
 #################################
+def calculate_n_eff(pop: int, n_orig: np.ndarray, sigma: np.ndarray, se: np.ndarray) -> np.ndarray:
+    """
+    Function that calculates effective N
+
+    :param pop: Number of the population (used to index into sigma)
+    :param n_orig: Array of original per-SNP N values for this population
+    :param sigma: MxPxP matrix of Sigma values
+    :param se: Array of length M of standard errors
+
+    :return: The array of per-SNP effective N's
+    """
+    return n_orig * sigma[:, pop, pop] * np.reciprocal(np.square(se))
+
+
+#################################
 # TODO(jonbjala) Allowing specifying population order?  For now go with order in sumstats dictionary
-def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
+def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], snp_list: str = None,
                   column_maps: Dict[PopulationId, Dict[str, str]] = {},
                   re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
                   filters: Dict[str, Tuple[Filter, str]] = MAMA_STD_FILTERS,
@@ -266,6 +296,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
 
     :param sumstats: Dictionary of population identifier -> filename or DataFrame
     :param ldscore_list: List of filenames and/or DataFrames of LD scores (will be concatenated)
+    :param snp_list: Path to file containing list of rsIDs to which to restrict analysis
     :param column_maps: Dictionary containing any column mappings indexed by population identifier
                         (same as used for sumstats parameter).  If none exists, the re_expr_map
                         will be used to determine column mappings
@@ -299,8 +330,15 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
         sumstats[pop_id] = process_sumstats(pop_df, re_expr_map, MAMA_REQ_STD_COLS,
                                             filters, col_map)
 
+    # If a SNP list is given, read that in
+    if snp_list:
+        snp_list = pd.read_csv(snp_list, sep='\n', engine='python', comment='#',
+                               dtype=str, names=[SNP_COL], squeeze=True)
+        # snp_list.set_index(SNP_COL, inplace=True)
+        snp_list = pd.Index(data=snp_list, dtype=str)
+
     # Harmonize the summary stats and LD scores (write to disk if requested)
-    harmonize_all(sumstats, ldscores)
+    harmonize_all(sumstats, ldscores, snp_list)
     if harmonized_file_fstr:
         logging.info("\nWriting harmonized summary statistics to disk.\n")
         for (ancestry, phenotype), harm_ss_df in sumstats.items():
@@ -337,13 +375,21 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
     # Create drop arrays shapes that allow for broadcasting and comparison later
     omega_valid = qc_omega(omega).reshape((omega.shape[0], 1, 1))
     sigma_valid = qc_sigma(sigma).reshape((sigma.shape[0], 1, 1))
+    print("JJ: OMEGA INVALID SUM = ", np.logical_not(omega_valid.ravel()).sum())
+    print("JJ: SIGMA INVALID SUM = ", np.logical_not(sigma_valid.ravel()).sum())
+    print("JJ: Invalid omega rsIDs =\n", ldscores.index[np.logical_not(omega_valid.ravel())])
+    print("JJ: Invalid sigma rsIDs =\n", ldscores.index[np.logical_not(sigma_valid.ravel())])
+    print("JJ: Invalid omegas =\n", omega[np.logical_not(omega_valid.ravel()), :, :])
+    print("JJ: Invalid sigmas =\n", sigma[np.logical_not(sigma_valid.ravel()), :, :])
+    print("JJ: LDScores for invalid omegas=\n", ldscore_arr[np.logical_not(omega_valid.ravel()), :, :])
+
     omega_sigma_drops = np.logical_not(np.logical_and(omega_valid, sigma_valid))
     omega_sigma_1d_drops = omega_sigma_drops.ravel()  # Need a 1-D array for DataFrame drops later
     os_drop_rsids = ldscores.index[omega_sigma_1d_drops].to_list()
     num_os_drops = len(os_drop_rsids)
     logging.info("Dropped %s SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
                  num_os_drops)
-    max_rs_len = MAX_RSID_LOG if logging.root.level > logging.DEBUG else num_os_drops
+    max_rs_len = MAX_RSID_LOGGING if logging.root.level > logging.DEBUG else num_os_drops
     logging.info("\tRS IDs = %s", os_drop_rsids + ["..."]
                  if num_os_drops > max_rs_len else os_drop_rsids)
 
@@ -354,12 +400,22 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any],
                               np.where(omega_sigma_drops, np.identity(omega.shape[1]), omega),
                               np.where(omega_sigma_drops, np.identity(sigma.shape[1]), sigma))
 
-    # Copy values back to the summary statistics DataFrames (and make omega / sigma - related drops)
+    # Copy values back to the summary statistics DataFrames
+    # Also, perform any remaining calculations / formatting
     logging.info("\nPreparing results for output.")
+    final_snp_count = 0
     for pop_num, ((ancestry, phenotype), ss_df) in enumerate(sumstats.items()):
         ss_df[BETA_COL] = new_betas[:, pop_num]
         ss_df[SE_COL] = new_beta_ses[:, pop_num]
+
+        if N_COL in ss_df.columns:
+            ss_df[N_EFF_COL] = calculate_n_eff(pop_num, ss_df[N_COL].to_numpy(),
+                                               sigma, new_beta_ses[:, pop_num])
+            ss_df.rename(columns={N_COL : ORIGINAL_N_COL_RENAME}, inplace=True)
+
         ss_df.drop(ss_df.index[omega_sigma_1d_drops], inplace=True)
-        # TODO(jonbjala) Effective N
+        ss_df.sort_values(by=[CHR_COL, BP_COL], inplace=True)
+        final_snp_count = len(ss_df)
+    logging.info("\nFinal SNP count = %s", final_snp_count)
 
     return sumstats

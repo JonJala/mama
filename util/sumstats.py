@@ -25,6 +25,9 @@ FREQ_COL = 'FREQ'
 SE_COL = 'SE'
 A1_COL = 'A1'
 A2_COL = 'A2'
+P_COL = 'P'
+INFO_COL = 'INFO'
+N_COL = 'N'
 
 
 # Construct useful base-pair related constant sets / maps
@@ -254,7 +257,7 @@ def process_sumstats(initial_df: pd.DataFrame, re_expr_map: Dict[str, str],
         logging.info("\nFiltered out %d SNPs with \"%s\" (%s)", len(filt_drops), filt_name,
                      filters.get(filt_name, (0, "No description available"))[1])
         rsids = filt_drops[:min(max_rs_len, len(filt_drops))]
-        logging.info("\tRS IDs = %s", rsids + ["..."] if len(filt_drops) > max_rs_len else rsids)
+        logging.debug("\tRS IDs = %s", rsids + ["..."] if len(filt_drops) > MAX_RSID_LOGGING else rsids)
     logging.info("\nFiltered out %d SNPs in total (as the union of drops, this may be "
                  "less than the total of all the per-filter drops)", drop_indices.sum())
     logging.info("Additionally dropped %d duplicate SNPs", len(dups))
@@ -262,4 +265,3 @@ def process_sumstats(initial_df: pd.DataFrame, re_expr_map: Dict[str, str],
     logging.info("\tRS IDs = %s\n", rsids + ["..."] if len(dups) > max_rs_len else rsids)
 
     return qc_df
-    

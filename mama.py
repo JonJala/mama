@@ -66,8 +66,10 @@ REG_FILENAME_FSTR = "regression_coef_filename_format_str"
 # Derived Constants###########################
 
 # Dictionaries that create and map argparse flags to the corresponding column affected
-MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower() for col in MAMA_REQ_STD_COLS}
-MAMA_RE_ADD_FLAGS = {col : "add-%s-col-match" % col.lower() for col in MAMA_REQ_STD_COLS}
+MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower()
+                         for col in MAMA_RE_EXPR_MAP.keys()}
+MAMA_RE_ADD_FLAGS = {col : "add-%s-col-match" % col.lower()
+                     for col in MAMA_RE_EXPR_MAP.keys()}
 
 # Default prefix to use for output when not specified
 DEFAULT_FULL_OUT_PREFIX = "%s/%s" % (os.getcwd(), DEFAULT_SHORT_PREFIX)
@@ -246,6 +248,10 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              "ANC1_ANC2, where ANC1 and ANC2 are ancestries.  Matching is case "
                              "sensitive, so these should match exactly to the ancestries passed "
                              "in via the --sumstats flag.")
+    in_opt.add_argument("--snp-list", type=input_file, required=False, metavar="FILE",
+                        help="Path to optional SNP list file (one rsID per line).  "
+                             "If specified, this list will be used to restrict the final list "
+                             "of SNPs reported (anything outside of this list will be dropped)")
 
     # Output Options
     out_opt = parser.add_argument_group(title="Output Specifications")
@@ -359,12 +365,11 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
                                   "and Minor allele = \'C\')")
-    # TODO(jonbjala) HWE option?  (need to add that filter first)
 
     # Summary Statistics Column Options
     ss_col_opt = parser.add_argument_group(title="Summary Statistics Column Options",
                                            description="Options for parsing summary stats columns")
-    for col in MAMA_REQ_STD_COLS:
+    for col in MAMA_RE_EXPR_MAP.keys():
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
         col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option adds to the default (case-insenstive) "
@@ -698,9 +703,10 @@ def main_func(argv: List[str]):
         iargs = validate_inputs(parsed_args, user_args)
 
         # Run the MAMA pipeline
-        result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs[COL_MAP],
-                                        iargs[RE_MAP], iargs[FILTER_MAP], iargs[REG_LD_COEF_OPT],
-                                        iargs[REG_SE2_COEF_OPT], iargs[REG_INT_COEF_OPT],
+        result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs['snp_list'],
+                                        iargs[COL_MAP], iargs[RE_MAP], iargs[FILTER_MAP],
+                                        iargs[REG_LD_COEF_OPT], iargs[REG_SE2_COEF_OPT],
+                                        iargs[REG_INT_COEF_OPT],
                                         iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR])
 
         # Write out the summary statistics to disk

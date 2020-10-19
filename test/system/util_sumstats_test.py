@@ -36,12 +36,11 @@ class TestProcessSumstats:
         """
         ss_file = "sumstats_filter/data.txt"
         ss_full_filepath = os.path.join(data_directory, ss_file)
-
         orig_df = mp.obtain_df(ss_full_filepath, "SS")
-        print("JJ: \n", orig_df)
+
         df = ss.process_sumstats(orig_df, mp.MAMA_RE_EXPR_MAP, mp.MAMA_REQ_STD_COLS,
                                  mp.MAMA_STD_FILTERS)
-        print("JJ: \n", df)
+
         res_col = next(c for c in df.columns if "keep" in c)
         num_keeps = int(next(token for token in res_col.split("_") if token.isnumeric()))
 

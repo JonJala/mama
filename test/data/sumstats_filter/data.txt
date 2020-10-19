@@ -1,17 +1,66 @@
-_a2_	_a1_	_se_	_freq_	_beta_	_chr_	_snp_	_keep_4_
-A	T	-1.0	0.25	0.0	1	RS10	Drop
-C	G	0.5	0.25	0.0625	2	RS11	Drop
-T	T	0.5	0.25	0.125	3	RS12	Drop
-G	G	0.5	0.25	0.1875	4	RS13	Drop
-A	G	0.0	0.25	0.25	5	RS14	Keep_1
-C	A	-1.0	0.25	0.3125	6	RS15	Drop
-T	C	0.5	0.01	0.375	7	RS16	Keep_2
-G	T	0.5	0.99	0.4375	8	RS17	Keep_3
-A	G	0.5	0.0	0.5	9	RS18	Drop
-C	A	0.5	1.0	0.5625	10	RS19	Drop
-T	C	0.5	0.25	0.625	0	rs20	Drop
-G	ABC	0.5	0.25	0.6875	12	rs21	Drop
-AB	G	0.5	0.25	0.75	13	rs22	Drop
-n/a	A	0.5	0.25	0.8125	14	rs23	n/a
-T	C	0.5	0.25	0.875	15	rs16	Drop
-G	T	0.5	0.25	0.9375	16	Rs25	Keep_4
+# The label in the "_keep_" column should contain the number of kept SNPs
+_a2_	_a1_	_se_	_freq_	_beta_	_chr_	_snp_	_keep_28_	_bp_	p	dummy_col
+# This SNP should pass all filters
+A	G	0.5	0.5	0.5	1	rs001	Keep_1	1	0.9	1.0
+# Drop SNPs with NaNs only in required columns
+n/a	G	0.5	0.5	0.5	1	rs002	Drop	2	0.9	1.0
+A	n/a	0.5	0.5	0.5	1	rs003	Drop	3	0.9	1.0
+A	G	n/a	0.5	0.5	1	rs004	Drop	4	0.9	1.0
+A	G	0.5	n/a	0.5	1	rs005	Drop	5	0.9	1.0
+A	G	0.5	0.5	n/a	1	rs006	Drop	6	0.9	1.0
+A	G	0.5	0.5	0.5	n/a	rs007	Drop	7	0.9	1.0
+A	G	0.5	0.5	0.5	1	n/a	Drop	8	0.9	1.0
+A	G	0.5	0.5	0.5	1	rs009	Drop	n/a	0.9	1.0
+A	G	0.5	0.5	0.5	1	rs010	Drop	10	n/a	1.0
+A	G	0.5	0.5	0.5	1	rs011	Keep_2	11	0.9	n/a
+# Drop SNPs with frequencies outside default range [0.01-0.99]
+A	G	0.5	0.0009	0.5	1	rs012	Drop	12	0.9	1.0
+A	G	0.5	0.01	0.5	1	rs013	Keep_3	13	0.9	1.0
+A	G	0.5	0.99	0.5	1	rs014	Keep_4	14	0.9	1.0
+A	G	0.5	0.9901	0.5	1	rs015	Drop	15	0.9	1.0
+# Drop SNPs with non-positive SE values
+A	G	0.5	-0.5	0.5	1	rs016	Drop	16	0.9	1.0
+A	G	0.5	0.0	0.5	1	rs017	Drop	17	0.9	1.0
+# Drop SNPs with chromosome values not in default set {[1-22], 'X', 'Y'}
+A	G	0.5	0.5	0.5	1	rs018	Keep_5	18	0.9	1.0
+A	G	0.5	0.5	0.5	2	rs019	Keep_6	19	0.9	1.0
+A	G	0.5	0.5	0.5	3	rs020	Keep_7	20	0.9	1.0
+A	G	0.5	0.5	0.5	4	rs021	Keep_8	21	0.9	1.0
+A	G	0.5	0.5	0.5	5	rs022	Keep_9	22	0.9	1.0
+A	G	0.5	0.5	0.5	6	rs023	Keep_10	23	0.9	1.0
+A	G	0.5	0.5	0.5	7	rs024	Keep_11	24	0.9	1.0
+A	G	0.5	0.5	0.5	8	rs025	Keep_12	25	0.9	1.0
+A	G	0.5	0.5	0.5	9	rs026	Keep_13	26	0.9	1.0
+A	G	0.5	0.5	0.5	10	rs027	Keep_14	27	0.9	1.0
+A	G	0.5	0.5	0.5	11	rs028	Keep_15	28	0.9	1.0
+A	G	0.5	0.5	0.5	12	rs029	Keep_16	29	0.9	1.0
+A	G	0.5	0.5	0.5	13	rs030	Keep_17	30	0.9	1.0
+A	G	0.5	0.5	0.5	14	rs031	Keep_18	31	0.9	1.0
+A	G	0.5	0.5	0.5	15	rs032	Keep_19	32	0.9	1.0
+A	G	0.5	0.5	0.5	16	rs033	Keep_20	33	0.9	1.0
+A	G	0.5	0.5	0.5	17	rs034	Keep_21	34	0.9	1.0
+A	G	0.5	0.5	0.5	18	rs035	Keep_22	35	0.9	1.0
+A	G	0.5	0.5	0.5	19	rs036	Keep_23	36	0.9	1.0
+A	G	0.5	0.5	0.5	20	rs037	Keep_24	37	0.9	1.0
+A	G	0.5	0.5	0.5	21	rs038	Keep_25	38	0.9	1.0
+A	G	0.5	0.5	0.5	22	rs039	Keep_26	39	0.9	1.0
+A	G	0.5	0.5	0.5	X	rs040	Keep_27	40	0.9	1.0
+A	G	0.5	0.5	0.5	Y	rs041	Keep_28	41	0.9	1.0
+A	G	0.5	0.5	0.5	0	rs042	Drop	42	0.9	1.0
+A	G	0.5	0.5	0.5	23	rs043	Drop	43	0.9	1.0
+A	G	0.5	0.5	0.5	Z	rs044	Drop	44	0.9	1.0
+# Drop SNPs with major allele == minor allele
+A	A	0.5	0.5	0.5	1	rs045	Drop	45	0.9	1.0
+G	G	0.5	0.5	0.5	1	rs046	Drop	46	0.9	1.0
+T	T	0.5	0.5	0.5	1	rs047	Drop	47	0.9	1.0
+C	C	0.5	0.5	0.5	1	rs048	Drop	48	0.9	1.0
+# Drop SNPs that are palindromic (major allele / minor allele form a base pair)
+A	T	0.5	0.5	0.5	1	rs049	Drop	49	0.9	1.0
+T	A	0.5	0.5	0.5	1	rs050	Drop	50	0.9	1.0
+C	G	0.5	0.5	0.5	1	rs051	Drop	51	0.9	1.0
+G	C	0.5	0.5	0.5	1	rs052	Drop	52	0.9	1.0
+# Drop SNPs with major or minor alleles that aren't a single base value
+AA	G	0.5	0.5	0.5	1	rs053	Drop	53	0.9	1.0
+A	GC	0.5	0.5	0.5	1	rs054	Drop	54	0.9	1.0
+X	G	0.5	0.5	0.5	1	rs055	Drop	55	0.9	1.0
+A	Y	0.5	0.5	0.5	1	rs056	Drop	56	0.9	1.0
