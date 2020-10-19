@@ -740,7 +740,6 @@ advanced_opt.add_argument('--ldBlockSize', default=False, action='store_true',
 def main_func(argv):
     # I feel like this came up in PGI, I forget what the solution is but passing everything in sys.argv
     # also includes the path to the script itself, so you get an error that mama_ldscore.py isn't an accepted flag.
-    print(argv)
     args = parser.parse_args(argv[1:])
 
     logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
