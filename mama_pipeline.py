@@ -229,6 +229,17 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
 
 
 #################################
+def write_sumstats_to_file(filename: str, df: pd.DataFrame):
+    """
+    Helper function that writes a summary statistics DataFrame to disk
+
+    :param filename: Full path to output file
+    :param df: DataFrame holding the summary statistics
+    """
+    df.to_csv(filename, sep="\t", index_label=SNP_COL)
+
+
+#################################
 def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame,
                       ordering: List[PopulationId] = None) -> pd.DataFrame:
     """
@@ -457,13 +468,11 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         new_df_data_list.append((SE_COL, new_beta_ses[:, pop_num]))
 
         # Calculate Z score
-        z_scores = ss_df[BETA_COL] / ss_df[SE_COL]
-        mean_chi_2 = np.square(z_scores).mean()
-        logging.info("\t\tMean Chi^2 for %s = %s", (ancestry, phenotype), mean_chi_2)
+        z_scores = np.divide(new_betas[:, pop_num], new_beta_ses[:, pop_num])
         new_df_data_list.append((Z_COL, z_scores))
 
         # Calculate P column
-        new_df_data_list.append((P_COL, calculate_p(z_scores.to_numpy())))
+        new_df_data_list.append((P_COL, calculate_p(z_scores)))
 
         # Calculate effective N
         if N_COL in ss_df.columns:
@@ -481,6 +490,10 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
         # Replace the old dataframe with the new one
         sumstats[(ancestry, phenotype)] = new_df
+
+        # Report mean chi squared
+        mean_chi_2 = np.square(new_df[Z_COL].to_numpy()).mean()
+        logging.info("\t\tMean Chi^2 for %s = %s", (ancestry, phenotype), mean_chi_2)
 
     logging.info("\nFinal SNP count = %s", final_snp_count)
 

@@ -18,7 +18,7 @@ import pandas as pd
 
 from mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
                             DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, FREQ_FILTER, CHR_FILTER,
-                            SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline)
+                            SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline, write_sumstats_to_file)
 from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
                        MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
 from util.df import determine_column_mapping
@@ -522,17 +522,6 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
 
     return parsed_args, user_args, parser
-
-
-#################################
-def write_sumstats_to_file(filename: str, df: pd.DataFrame):
-    """
-    Helper function that writes a summary statistics DataFrame to disk
-
-    :param filename: Full path to output file
-    :param df: DataFrame holding the summary statistics
-    """
-    df.to_csv(filename, sep="\t", index_label=SNP_COL)
 
 
 #################################
