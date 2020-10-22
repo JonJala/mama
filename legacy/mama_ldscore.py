@@ -446,7 +446,7 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
         # if allele count:
             # multiply each sq correlation with ratio of variances
             # variance of x_k = 2p_k(1-p_k)
-        if args.ale_ct_ldsc:
+        if not args.std_geno_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
             pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
             pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
@@ -520,7 +520,7 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
 
             rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
-        if args.ale_ct_ldsc:
+        if not args.std_geno_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
             pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
             pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
@@ -569,7 +569,7 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
 
             rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
 
-        if args.ale_ct_ldsc:
+        if not args.std_geno_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
             pop1_freq = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
             pop2_freq = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
@@ -781,8 +781,8 @@ basic_ldsc.add_argument('--bfile-merged-path', default=None, type=str,
 
 # Filtering / Data Management for LD Score
 data_filter = parser.add_argument_group(title="LD Score Estimation Data Filters", description="Data management options for LD scores.")
-data_filter.add_argument('--ale-ct-ldsc', default=False, action='store_true',
-    help='Generate LD scores from allele counts (default is standardized genotypes).')
+data_filter.add_argument('--std-geno-ldsc', default=False, action='store_true',
+      help='Generate LD scores from standardized genotypes (default is allele counts).')
 data_filter.add_argument('--ld-extract', default=None, type=str,
     help='File with SNPs to include in LD Score estimation. The file should contain one SNP ID per row.')
 data_filter.add_argument('--ld-keep', default=None, type=str, 
