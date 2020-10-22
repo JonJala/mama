@@ -151,7 +151,7 @@ def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any) -> pd.DataFram
         logging.info("Reading in %s file: %s", id_val, possible_df)
         possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
-    elif not isinstance(sumstats[pop_name], pd.DataFrame):
+    elif not isinstance(possible_df, pd.DataFrame):
         raise RuntimeError("ERROR: Either pass in filename or DataFrame for %s rather than [%s]" %
                            (id_val, type(possible_df)))
 
@@ -337,6 +337,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
                   ld_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   se_prod_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   int_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                  std_units: bool = False,
                   harmonized_file_fstr: str = "",
                   reg_coef_fstr: str = "") -> Dict[PopulationId, pd.DataFrame]:
     """
@@ -395,6 +396,14 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
             logging.debug("\t%s", filename)
             write_sumstats_to_file(filename, harm_ss_df)
 
+    # If using a standardized units model, convert to stdized units here (convert back later)
+    if std_units:
+        for pop_id, pop_df in sumstats.items():
+            logging.debug("Converting %s to standardized units", pop_id)
+            conversion_factor_col = np.sqrt(2.0 * pop_df[FREQ_COL] * (1.0 - pop_df[FREQ_COL]))
+            pop_df[BETA_COL] = pop_df[BETA_COL] * conversion_factor_col
+            pop_df[SE_COL] = pop_df[SE_COL] * conversion_factor_col
+
     # Copy values to numpy ndarrays to use in vectorized processing
     beta_arr, se_arr, ldscore_arr = collate_df_values(sumstats, ldscores)
 
@@ -425,6 +434,8 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     omega_drops = np.logical_not(qc_omega(omega))
     sigma_drops = np.logical_not(qc_sigma(sigma))
     omega_sigma_drops = np.logical_or(omega_drops, sigma_drops)
+    logging.info("Average Omega (including dropped slices) =\n%s", omega.mean(axis=0))
+    logging.info("Average Sigma (including dropped slices) =\n%s", sigma.mean(axis=0))
 
     logging.info("Dropped %s SNPs due to non-positive-semi-definiteness of omega.",
                  omega_drops.sum())
@@ -455,7 +466,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # Copy values back to the summary statistics DataFrames
     # Also, perform any remaining calculations / formatting
-    logging.info("\nPreparing results for output.")
+    logging.info("\nPreparing results for output.\n")
     final_snp_count = 0
     for pop_num, ((ancestry, phenotype), ss_df) in enumerate(sumstats.items()):
         logging.info("\tPopulation %s: %s", pop_num, (ancestry, phenotype))
@@ -494,6 +505,14 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         # Report mean chi squared
         mean_chi_2 = np.square(new_df[Z_COL].to_numpy()).mean()
         logging.info("\t\tMean Chi^2 for %s = %s", (ancestry, phenotype), mean_chi_2)
+
+        # If using a standardized units model, convert back from stdized units here
+        if std_units:
+            logging.debug("\t\tConverting %s from standardized units", (ancestry, phenotype))
+            conversion_factor_col = np.reciprocal(np.sqrt(
+                2.0 * new_df[FREQ_COL] * (1.0 - new_df[FREQ_COL])))
+            new_df[BETA_COL] = new_df[BETA_COL] * conversion_factor_col
+            new_df[SE_COL] = new_df[SE_COL] * conversion_factor_col
 
     logging.info("\nFinal SNP count = %s", final_snp_count)
 

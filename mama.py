@@ -275,7 +275,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     # General Options
     gen_opt = parser.add_argument_group(title="General Options")
-    gen_opt.add_argument("--use-standardized-units", action="store_true",
+    gen_opt.add_argument("--use-standardized-units", default=False, action="store_true",
                          help="This option should be specified to cause the processing done in "
                               "MAMA to be done in standardized units.  Inputs and outputs are "
                               "always in allele count, but internal processing can be done in "
@@ -695,7 +695,7 @@ def main_func(argv: List[str]):
         result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs['snp_list'],
                                         iargs[COL_MAP], iargs[RE_MAP], iargs[FILTER_MAP],
                                         iargs[REG_LD_COEF_OPT], iargs[REG_SE2_COEF_OPT],
-                                        iargs[REG_INT_COEF_OPT],
+                                        iargs[REG_INT_COEF_OPT], iargs['use_standardized_units'],
                                         iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR])
 
         # Write out the summary statistics to disk

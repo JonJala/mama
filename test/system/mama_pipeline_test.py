@@ -4,10 +4,12 @@ System tests for mama_pipeline.py.  This should be run via pytest.
 
 import os
 import sys
-main_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-test_directory = os.path.abspath(os.path.join(main_directory, 'test'))
-data_directory = os.path.abspath(os.path.join(test_directory, 'data'))
-sys.path.append(main_directory)
+main_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
+test_dir = os.path.abspath(os.path.join(main_dir, 'test'))
+data_dir = os.path.abspath(os.path.join(test_dir, 'data'))
+sys.path.append(main_dir)
+
+import logging
 
 import numpy as np
 import pandas as pd
@@ -145,3 +147,29 @@ class TestRunLdScoreRegressions:
         print("JJ: perf corr se2_coef\n", se2_coef)
         # TODO(jonbjala) Finish / actually write this test
         assert True
+
+#===================================================================================================
+class TestMamaPipeline:
+
+    #########
+    def test__single_pop_const_ses__same_betas_scaled_ses(self, caplog):
+        caplog.set_level(logging.INFO)
+
+        pop_id = ('POP1', 'PHENO1')
+        pop1_ssfile = os.path.abspath(os.path.join(data_dir, 'two_pop/pop1_pheno1_sumstats.txt'))
+        orig_df = mp.obtain_df(pop1_ssfile, pop_id)
+        orig_df[ss.SE_COL] = 0.5
+
+        ldscore_file = os.path.abspath(os.path.join(data_dir, 'two_pop/pop1_pop2_chr1.l2.ldscore'))
+
+        results = mp.mama_pipeline({pop_id : orig_df.copy()}, [ldscore_file])
+        result_df = results[pop_id]
+
+        orig_df.set_index(ss.SNP_COL, inplace=True)
+
+        # Make sure we only compare using SNPs that are in the result
+        result_snps = result_df.index
+        orig_df = orig_df.loc[result_snps]
+
+        assert np.allclose(result_df[ss.BETA_COL], orig_df[ss.BETA_COL])
+        assert np.allclose(1.0, result_df[ss.SE_COL])

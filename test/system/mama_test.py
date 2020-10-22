@@ -72,6 +72,9 @@ def valid_basic_pargs(temp_test_dir):
     pargs.sumstats = [(f,a,p) for ((a,p), f) in ss_files.items()]
     pargs.ld_scores = [ldscores_filename]
 
+    # Set standardized units to default
+    pargs.use_standardized_units = False
+
     return pargs
 
 
@@ -94,6 +97,7 @@ class TestValidateInputs:
         assert result[mama.REG_LD_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
         assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
         assert result[mama.REG_INT_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
+        assert not result['use_standardized_units']
 
         for attr in vars(valid_basic_pargs):
             assert getattr(valid_basic_pargs, attr) == result[attr]
@@ -228,6 +232,8 @@ class TestValidateInputs:
         assert str(min_f) in freq_filter_desc
         assert str(max_f) in freq_filter_desc
 
+
+
     # TODO(jonbjala) Test other filters?  (like CHR)
     #########
 
@@ -309,6 +315,18 @@ class TestValidateInputs:
         assert result[mama.REG_FILENAME_FSTR]
         assert n.out in result[mama.REG_FILENAME_FSTR]
         assert mama.LD_COEF_SUFFIX in result[mama.REG_FILENAME_FSTR]
+
+    #########
+
+    def test__specify_std_units__expected_results(self, valid_basic_pargs):
+
+        n = copy.copy(valid_basic_pargs)
+
+        # Set harmonized output flag
+        n.use_standardized_units = True
+
+        result = mama.validate_inputs(n, dict())
+        assert result['use_standardized_units']
 
 
     # TODO(jonbjala) Test column mapping (SS file with missing columns)
