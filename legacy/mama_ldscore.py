@@ -448,20 +448,24 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             # variance of x_k = 2p_k(1-p_k)
         if args.ale_ct_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
-            pop1_freq = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
-            pop2_freq = A[flag_2[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
+            pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
+            pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
+            pop1_freq_B = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq_B = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
 
             # snp variance is 2p(1-p)
-            pop1_var = 2*pop1_freq*(1-pop1_freq)
-            pop2_var = 2*pop2_freq*(1-pop2_freq)
+            pop1_var_A = 2*pop1_freq_A*(1-pop1_freq_A)
+            pop2_var_A = 2*pop2_freq_A*(1-pop2_freq_A)
+            pop1_var_B = 2*pop1_freq_B*(1-pop1_freq_B)
+            pop2_var_B = 2*pop2_freq_B*(1-pop2_freq_B)
 
             # construct fraction
-            numerator = np.nansum(np.sqrt(pop1_var*pop2_var))
-            denominator = np.sqrt(pop1_var*pop2_var)
-            scale_by = numerator / denominator
+            numerator = np.sqrt(pop1_var_A*pop2_var_A)
+            denominator = np.sqrt(np.reciprocal(pop1_var_B*pop2_var_B))
+            scale_by = np.outer(numerator, denominator)
 
             # convert to ale count ldsc
-            cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,) * scale_by
+            cor_sum[l_A:l_A+b, 0] += np.nansum(np.multiply(rfuncAB,scale_by), axis=1).reshape(-1,)
         else:
             cor_sum[l_A:l_A + b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1, )
  
@@ -519,9 +523,9 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
         if args.ale_ct_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
             pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
-            pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
+            pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
             pop1_freq_B = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
-            pop2_freq_B = B[flag_2[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq_B = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
 
             # snp variance is 2p(1-p)
             pop1_var_A = 2*pop1_freq_A*(1-pop1_freq_A)
@@ -530,15 +534,15 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             pop2_var_B = 2*pop2_freq_B*(1-pop2_freq_B)
 
             # construct fraction
-            numerator_A = np.nansum(np.sqrt(pop1_var_A*pop2_var_A))
-            denominator_A = np.sqrt(pop1_var_A*pop2_var_A)
-            scale_by_A = numerator_A / denominator_A
-            numerator_B = np.nansum(np.sqrt(pop1_var_B*pop2_var_B))
-            denominator_B = np.sqrt(pop1_var_B * pop2_var_B)
-            scale_by_B = numerator_B / denominator_B
+            numerator = np.sqrt(pop1_var_A*pop2_var_A)
+            denominator = np.sqrt(np.reciprocal(pop1_var_B*pop2_var_B))
+            scale_by = np.outer(numerator, denominator)
+            # numerator_B = np.sqrt(pop1_var_B*pop2_var_B)
+            # denominator_B = np.sqrt(np.reciprocal(pop1_var_B * pop2_var_B))
+            # scale_by_B = np.outer(numerator_B, denominator_B)
 
-            cor_sum[l_A:l_A + b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1, )*scale_by_A
-            cor_sum[l_B:l_B + c, 0] += np.nansum(rfuncAB, axis=0).reshape(-1, )*scale_by_B
+            cor_sum[l_A:l_A + b, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=1).reshape(-1,)
+            cor_sum[l_B:l_B + c, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=0).reshape(-1,)
         else:
 
             cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,)
@@ -568,21 +572,20 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
         if args.ale_ct_ldsc:
             # frequency is total allele count over 2*number of people (double for two chromosomes)
             pop1_freq = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
-            pop2_freq = B[flag_2[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
 
             # snp variance is 2p(1-p)
             pop1_var = 2*pop1_freq*(1-pop1_freq)
             pop2_var = 2*pop2_freq*(1-pop2_freq)
 
             # construct fraction
-            numerator = np.nansum(np.sqrt(pop1_var*pop2_var))
-            denominator = np.sqrt(pop1_var*pop2_var)
-            scale_by = numerator / denominator
+            numerator = np.sqrt(pop1_var*pop2_var)
+            denominator = np.sqrt(np.reciprocal(pop1_var*pop2_var))
+            scale_by = np.outer(numerator, denominator)
 
             # convert to ale count ldsc
-            cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncBB, axis=1).reshape(-1,)
+            cor_sum[l_B:l_B+c, 0] += np.nansum(np.multiply(rfuncBB, scale_by), axis=1).reshape(-1,)
         else:
-            
             cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncBB, axis=1).reshape(-1,)
 
     return cor_sum
