@@ -89,7 +89,7 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
             continue
 
         # We can try to tweak ths slice of omega to become positive semi-definite
-        omega_slice = tweak_omega(omega_slice)
+        omega[i, :, :] = tweak_omega(omega_slice)
         result[i] = True
 
     return result
