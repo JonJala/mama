@@ -236,7 +236,7 @@ def write_sumstats_to_file(filename: str, df: pd.DataFrame):
     :param filename: Full path to output file
     :param df: DataFrame holding the summary statistics
     """
-    df.to_csv(filename, sep="\t", index_label=SNP_COL)
+    df.to_csv(filename, sep="\t", index_label=SNP_COL, na_rep="NaN")
 
 
 #################################
