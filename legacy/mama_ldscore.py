@@ -149,9 +149,9 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
         bootstrap = 1
     else:
         bootstrap = None
-        
+
     #bootstrap = int(args.bootstrap)
-    
+
     # Build the cross-ancestry LD score matrix
     score_tags = [x for x in it.combinations(ances_ind,2)]
     col_list = ['_'.join(x) for x in score_tags] + ['{P}_{P}'.format(P=x) for x in ances_ind]
@@ -186,7 +186,7 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
             # determine block widths
             max_dist, coords = ld.block_width(args, geno_array, array_snps)
             block_left = ld.getBlockLefts(coords, max_dist) # coordinate of the leftmost SNPs included in blocks
-            
+
             if args.ldBlockSize:
                 block_size = ld.getBlockM(coords, max_dist) # log number of SNPs in the LD block (score set specific)
                 mama_ld_df.loc[geno_array.kept_snps, '{P1}_{P2}_ldBlockSize'.format(P1=ances_ind[t],P2=ances_ind[j])] = block_size
@@ -205,7 +205,7 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
                 #mama_ld_df.loc[geno_array.kept_snps, '{P1}_{P2}_lower'.format(P1=ances_ind[t],P2=ances_ind[j])] = np.nanpercentile(pair_ldscore[:,1:], 2.5, axis=1)
                 #mama_ld_df.loc[geno_array.kept_snps, '{P1}_{P2}_upper'.format(P1=ances_ind[t],P2=ances_ind[j])] = np.nanpercentile(pair_ldscore[:,1:], 97.5, axis=1)
                 mama_ld_df.loc[geno_array.kept_snps, '{P1}_{P2}_bootstrap'.format(P1=ances_ind[t],P2=ances_ind[j])] = pair_ldscore[:,1].reshape(-1,)
-                
+
             mama_ld_flat.append(pair_ldscore)
             #mama_ld_dict['{p1}_{p2}'.format(p1=ances_ind[t], p2=ances_ind[j])] = pair_ldscore
             logging.info(short_border+"\n")
@@ -274,134 +274,137 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
 
     exp = float(args.pq_exp) if args.pq_exp else 0
 
-    if bootstrap: # ADDED 11/5: record bootstrap indexes
-        bs_ind_1 = np.zeros((ances_n[0], bootstrap), dtype=np.int32)
-        bs_ind_2 = np.zeros((ances_n[1], bootstrap), dtype=np.int32)
-        cor_sum = np.zeros((m, int(bootstrap)+1))
-
-        for i in range(bootstrap):
-            bs_geno_array = array_obj(array_file, array_n, array_snps, keep_snps=snplist, keep_indivs=indlist, mafMin=args.maf) # static
-            bs_A = bs_geno_array.nextSNPs(b) # static
-            bs_l_A = 0
-            bs_ind_1[:, i] = np.random.choice(flag_1[0], size=ances_n[0], replace=True) # bootstrap
-            bs_ind_2[:, i] = np.random.choice(flag_2[0], size=ances_n[1], replace=True) # bootstrap
-            c = c_size
-            [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((b, c))] * 3
-            [rfuncBB, rfuncBB_1, rfuncBB_2] = [np.zeros((c, c))] * 3
-
-            # chunk inside the first block
-            for bs_l_B in range(0, b, c):  # bs_l_B := index of leftmost SNP in matrix B
-                bs_B = bs_A[:, bs_l_B:bs_l_B+c]
-
-                if t==j: # ances_1 = ances_2
-                    (A_trans, B_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
-                    rfuncAB_1 = np.dot(A_trans[:].T, B_trans[:] / ances_n[t])
-                    rfuncAB_2 = np.dot(A_trans[:].T, B_trans[:] / ances_n[j])
-
-                    #assert np.allclose(rfuncAB_1,rfuncAB_2, atol=1e-08), "The SNP correlations for the same ancestry group do not match!"
-                    # absolute(a - b) <= (atol + rtol * absolute(b))
-
-                    if args.no_single_correct:
-                        rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
-                    else:
-                        rfuncAB = ld.l2_unbiased(rfuncAB_1, ances_n[t])
-                        
-                else: # ances_1 != ances_2
-
-                    (A1_trans, B1_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
-                    rfuncAB_1 = np.dot(A1_trans[:].T, B1_trans[:] / ances_n[t])
-
-                    (A2_trans, B2_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_2[:,i], exp)
-                    rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
-
-                    rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
-
-                cor_sum[bs_l_A:bs_l_A+b, i+1] += np.nansum(rfuncAB, axis=1).reshape(-1,)
-         
-            # move on to the next block
-            b0 = b
-            md = int(c*np.floor(m/c)) # md <= m, but is multiple of c
-            end = md + 1 if md != m else md
-            bs_b = b
-
-            # chunk inside the next block
-            for bs_l_B in range(b0, end, c):
-                bs_old_b = bs_b
-                bs_b = int(block_sizes[bs_l_B]) # block_size is an array of floats
-                if bs_l_B > b0 and bs_b > 0:
-                    # block_size can't increase more than c
-                    # block_size can't be less than c unless it is zero
-                    # both of these things make sense
-                    bs_A = np.hstack((bs_A[:, bs_old_b-bs_b+c:bs_old_b], bs_B))
-                    bs_l_A += bs_old_b-bs_b+c
-                elif bs_l_B == b0 and bs_b > 0:
-                    bs_A = bs_A[:, b0-bs_b:b0]
-                    bs_l_A = b0-bs_b
-                elif bs_b == 0:  # no SNPs to left in window, e.g., after a sequence gap
-                    bs_A = np.array(()).reshape((n, 0))
-                    bs_l_A = bs_l_B
-                if bs_l_B == md:
-                    c = m - md # need to re-initialize the matrix
-                    [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((bs_b, c))] * 3
-                    [rfuncBB, rfuncBB_1, rfuncBB_2] = [np.zeros((c, c))] * 3
-                if bs_b != bs_old_b:
-                    [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((bs_b, c))] * 3
-
-                bs_B = bs_geno_array.nextSNPs(c)
-
-                if t==j:
-                    (A_trans, B_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
-                    rfuncAB_1 = np.dot(A_trans[:].T, B_trans[:] / ances_n[t])
-                    rfuncAB_2 = np.dot(A_trans[:].T, B_trans[:] / ances_n[j])
-
-                    #assert np.allclose(rfuncAB_1,rfuncAB_2, atol=1e-08), "This error should be catched earlier in the codes!"
-                    
-                    if args.no_single_correct:
-                        rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
-                    else:
-                        rfuncAB = ld.l2_unbiased(rfuncAB_1, ances_n[t])
-                else:
-
-                    (A1_trans, B1_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
-                    rfuncAB_1 = np.dot(A1_trans[:].T, B1_trans[:] / ances_n[t])
-
-                    (A2_trans, B2_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_2[:,i], exp)
-                    rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
-
-                    rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
-
-                cor_sum[bs_l_A:bs_l_A+bs_b, i+1] += np.nansum(rfuncAB, axis=1).reshape(-1,)
-                cor_sum[bs_l_B:bs_l_B+c, i+1] += np.nansum(rfuncAB, axis=0).reshape(-1,)
-                
-                if t==j:
-                    sing_ind = np.arange(bs_B.shape[0])
-                    (B_trans, _) = ld.scale_trans(bs_B, bs_B, sing_ind, exp)
-                    rfuncBB_1 = np.dot(B_trans[:].T, B_trans[:] / ances_n[t])
-                    rfuncBB_2 = np.dot(B_trans[:].T, B_trans[:] / ances_n[j])
-                    
-                    #assert np.allclose(rfuncBB_1,rfuncBB_2, atol=1e-08), "This error should be catched earlier in the codes!"
-                    if args.no_single_correct:
-                        rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
-                    else:
-                        rfuncBB = ld.l2_unbiased(rfuncBB_1, ances_n[t])
-                else:
-
-                    (B1_trans, _) = ld.scale_trans(bs_B, bs_B, bs_ind_1[:,i], exp)
-                    rfuncBB_1 = np.dot(B1_trans[:].T, B1_trans[:] / ances_n[t])
-
-                    (B2_trans, _) = ld.scale_trans(bs_B, bs_B, bs_ind_2[:,i], exp)
-                    rfuncBB_2 = np.dot(B2_trans[:].T, B2_trans[:] / ances_n[j])
-
-                    rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
-
-                cor_sum[bs_l_B:bs_l_B+c, i+1] += np.nansum(rfuncBB, axis=1).reshape(-1,)
-
-    else:
-        cor_sum = np.zeros((m, 1))
+    # if bootstrap: # ADDED 11/5: record bootstrap indexes
+    #     bs_ind_1 = np.zeros((ances_n[0], bootstrap), dtype=np.int32)
+    #     bs_ind_2 = np.zeros((ances_n[1], bootstrap), dtype=np.int32)
+    #     cor_sum = np.zeros((m, int(bootstrap)+1))
+    #
+    #     for i in range(bootstrap):
+    #         bs_geno_array = array_obj(array_file, array_n, array_snps, keep_snps=snplist, keep_indivs=indlist, mafMin=args.maf) # static
+    #         bs_A = bs_geno_array.nextSNPs(b) # static
+    #         bs_l_A = 0
+    #         bs_ind_1[:, i] = np.random.choice(flag_1[0], size=ances_n[0], replace=True) # bootstrap
+    #         bs_ind_2[:, i] = np.random.choice(flag_2[0], size=ances_n[1], replace=True) # bootstrap
+    #         c = c_size
+    #         [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((b, c))] * 3
+    #         [rfuncBB, rfuncBB_1, rfuncBB_2] = [np.zeros((c, c))] * 3
+    #
+    #         # chunk inside the first block
+    #         for bs_l_B in range(0, b, c):  # bs_l_B := index of leftmost SNP in matrix B
+    #             bs_B = bs_A[:, bs_l_B:bs_l_B+c]
+    #
+    #             if t==j: # ances_1 = ances_2
+    #                 (A_trans, B_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
+    #                 rfuncAB_1 = np.dot(A_trans[:].T, B_trans[:] / ances_n[t])
+    #                 rfuncAB_2 = np.dot(A_trans[:].T, B_trans[:] / ances_n[j])
+    #
+    #                 #assert np.allclose(rfuncAB_1,rfuncAB_2, atol=1e-08), "The SNP correlations for the same ancestry group do not match!"
+    #                 # absolute(a - b) <= (atol + rtol * absolute(b))
+    #
+    #                 if args.no_single_correct:
+    #                     rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
+    #                 else:
+    #                     rfuncAB = ld.l2_unbiased(rfuncAB_1, ances_n[t])
+    #
+    #
+    #
+    #             else: # ances_1 != ances_2
+    #
+    #                 (A1_trans, B1_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
+    #                 rfuncAB_1 = np.dot(A1_trans[:].T, B1_trans[:] / ances_n[t])
+    #
+    #                 (A2_trans, B2_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_2[:,i], exp)
+    #                 rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
+    #
+    #                 rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
+    #
+    #             cor_sum[bs_l_A:bs_l_A+b, i+1] += np.nansum(rfuncAB, axis=1).reshape(-1,)
+    #
+    #         # move on to the next block
+    #         b0 = b
+    #         md = int(c*np.floor(m/c)) # md <= m, but is multiple of c
+    #         end = md + 1 if md != m else md
+    #         bs_b = b
+    #
+    #         # chunk inside the next block
+    #         for bs_l_B in range(b0, end, c):
+    #             bs_old_b = bs_b
+    #             bs_b = int(block_sizes[bs_l_B]) # block_size is an array of floats
+    #             if bs_l_B > b0 and bs_b > 0:
+    #                 # block_size can't increase more than c
+    #                 # block_size can't be less than c unless it is zero
+    #                 # both of these things make sense
+    #                 bs_A = np.hstack((bs_A[:, bs_old_b-bs_b+c:bs_old_b], bs_B))
+    #                 bs_l_A += bs_old_b-bs_b+c
+    #             elif bs_l_B == b0 and bs_b > 0:
+    #                 bs_A = bs_A[:, b0-bs_b:b0]
+    #                 bs_l_A = b0-bs_b
+    #             elif bs_b == 0:  # no SNPs to left in window, e.g., after a sequence gap
+    #                 bs_A = np.array(()).reshape((n, 0))
+    #                 bs_l_A = bs_l_B
+    #             if bs_l_B == md:
+    #                 c = m - md # need to re-initialize the matrix
+    #                 [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((bs_b, c))] * 3
+    #                 [rfuncBB, rfuncBB_1, rfuncBB_2] = [np.zeros((c, c))] * 3
+    #             if bs_b != bs_old_b:
+    #                 [rfuncAB, rfuncAB_1, rfuncAB_2] = [np.zeros((bs_b, c))] * 3
+    #
+    #             bs_B = bs_geno_array.nextSNPs(c)
+    #
+    #             if t==j:
+    #                 (A_trans, B_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
+    #                 rfuncAB_1 = np.dot(A_trans[:].T, B_trans[:] / ances_n[t])
+    #                 rfuncAB_2 = np.dot(A_trans[:].T, B_trans[:] / ances_n[j])
+    #
+    #                 #assert np.allclose(rfuncAB_1,rfuncAB_2, atol=1e-08), "This error should be catched earlier in the codes!"
+    #
+    #                 if args.no_single_correct:
+    #                     rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
+    #                 else:
+    #                     rfuncAB = ld.l2_unbiased(rfuncAB_1, ances_n[t])
+    #             else:
+    #
+    #                 (A1_trans, B1_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_1[:,i], exp)
+    #                 rfuncAB_1 = np.dot(A1_trans[:].T, B1_trans[:] / ances_n[t])
+    #
+    #                 (A2_trans, B2_trans) = ld.scale_trans(bs_A, bs_B, bs_ind_2[:,i], exp)
+    #                 rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
+    #
+    #                 rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
+    #
+    #             cor_sum[bs_l_A:bs_l_A+bs_b, i+1] += np.nansum(rfuncAB, axis=1).reshape(-1,)
+    #             cor_sum[bs_l_B:bs_l_B+c, i+1] += np.nansum(rfuncAB, axis=0).reshape(-1,)
+    #
+    #             if t==j:
+    #                 sing_ind = np.arange(bs_B.shape[0])
+    #                 (B_trans, _) = ld.scale_trans(bs_B, bs_B, sing_ind, exp)
+    #                 rfuncBB_1 = np.dot(B_trans[:].T, B_trans[:] / ances_n[t])
+    #                 rfuncBB_2 = np.dot(B_trans[:].T, B_trans[:] / ances_n[j])
+    #
+    #                 #assert np.allclose(rfuncBB_1,rfuncBB_2, atol=1e-08), "This error should be catched earlier in the codes!"
+    #                 if args.no_single_correct:
+    #                     rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
+    #                 else:
+    #                     rfuncBB = ld.l2_unbiased(rfuncBB_1, ances_n[t])
+    #             else:
+    #
+    #                 (B1_trans, _) = ld.scale_trans(bs_B, bs_B, bs_ind_1[:,i], exp)
+    #                 rfuncBB_1 = np.dot(B1_trans[:].T, B1_trans[:] / ances_n[t])
+    #
+    #                 (B2_trans, _) = ld.scale_trans(bs_B, bs_B, bs_ind_2[:,i], exp)
+    #                 rfuncBB_2 = np.dot(B2_trans[:].T, B2_trans[:] / ances_n[j])
+    #
+    #                 rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
+    #
+    #             cor_sum[bs_l_B:bs_l_B+c, i+1] += np.nansum(rfuncBB, axis=1).reshape(-1,)
+    #
+    # else:
+    cor_sum = np.zeros((m, 1))
 
     # Calculation based on real data (static)
     l_A = 0  # initial index of leftmost SNP in matrix A
     geno_array = array_obj(array_file, array_n, array_snps, keep_snps=snplist, keep_indivs=indlist, mafMin=args.maf) # avoid joint use of array_obj when bootstrapping
+    # allele counts stored in A
     A = geno_array.nextSNPs(b)
     assert A.shape[0] == n, "The reading of nextSNPs does not match with the ancestry flag indicator."
 
@@ -411,7 +414,11 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
 
     for l_B in range(0, b, c):  # l_B := index of leftmost SNP in matrix B
         B = A[:, l_B:l_B+c]
-
+        # DEFINITIONS:
+            # A, B: Raw allele counts
+            # A_trans, B_trans: Standardized allele counts
+            # rfuncAB_1[i,j], rfuncAB_2[i,j]: covariance of SNP i and j in pops 1 and 2
+            # rfuncAB: squared correlation (from standardized geno units)
         if t==j: # ances_1 = ances_2
             sing_ind = np.arange(A.shape[0])
             (A_trans, B_trans) = ld.scale_trans(A, B, sing_ind, exp)
@@ -436,7 +443,31 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
 
             rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
 
-        cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,)
+        # if allele count:
+            # multiply each sq correlation with ratio of variances
+            # variance of x_k = 2p_k(1-p_k)
+        if not args.std_geno_ldsc:
+            # frequency is total allele count over 2*number of people (double for two chromosomes)
+            pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
+            pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
+            pop1_freq_B = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq_B = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
+
+            # snp variance is 2p(1-p)
+            pop1_var_A = 2*pop1_freq_A*(1-pop1_freq_A)
+            pop2_var_A = 2*pop2_freq_A*(1-pop2_freq_A)
+            pop1_var_B = 2*pop1_freq_B*(1-pop1_freq_B)
+            pop2_var_B = 2*pop2_freq_B*(1-pop2_freq_B)
+
+            # construct fraction
+            numerator = np.sqrt(pop1_var_A*pop2_var_A)
+            denominator = np.sqrt(np.reciprocal(pop1_var_B*pop2_var_B))
+            scale_by = np.outer(numerator, denominator)
+
+            # convert to ale count ldsc
+            cor_sum[l_A:l_A+b, 0] += np.nansum(np.multiply(rfuncAB,scale_by), axis=1).reshape(-1,)
+        else:
+            cor_sum[l_A:l_A + b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1, )
  
     # move on to the next block
     b0 = b
@@ -489,9 +520,33 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             rfuncAB_2 = np.dot(A2_trans[:].T, B2_trans[:] / ances_n[j])
 
             rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
+        if not args.std_geno_ldsc:
+            # frequency is total allele count over 2*number of people (double for two chromosomes)
+            pop1_freq_A = A[flag_1[0],:].sum(axis=0) / (2*A[flag_1[0],:].shape[0])
+            pop2_freq_A = A[flag_2[0],:].sum(axis=0) / (2*A[flag_2[0],:].shape[0])
+            pop1_freq_B = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq_B = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
 
-        cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,)
-        cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncAB, axis=0).reshape(-1,)
+            # snp variance is 2p(1-p)
+            pop1_var_A = 2*pop1_freq_A*(1-pop1_freq_A)
+            pop2_var_A = 2*pop2_freq_A*(1-pop2_freq_A)
+            pop1_var_B = 2*pop1_freq_B*(1-pop1_freq_B)
+            pop2_var_B = 2*pop2_freq_B*(1-pop2_freq_B)
+
+            # construct fraction
+            numerator = np.sqrt(pop1_var_A*pop2_var_A)
+            denominator = np.sqrt(np.reciprocal(pop1_var_B*pop2_var_B))
+            scale_by = np.outer(numerator, denominator)
+            # numerator_B = np.sqrt(pop1_var_B*pop2_var_B)
+            # denominator_B = np.sqrt(np.reciprocal(pop1_var_B * pop2_var_B))
+            # scale_by_B = np.outer(numerator_B, denominator_B)
+
+            cor_sum[l_A:l_A + b, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=1).reshape(-1,)
+            cor_sum[l_B:l_B + c, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=0).reshape(-1,)
+        else:
+
+            cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,)
+            cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncAB, axis=0).reshape(-1,)
         
         if t==j:
             sing_ind = np.arange(B.shape[0])
@@ -514,7 +569,24 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
 
             rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
 
-        cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncBB, axis=1).reshape(-1,)
+        if not args.std_geno_ldsc:
+            # frequency is total allele count over 2*number of people (double for two chromosomes)
+            pop1_freq = B[flag_1[0],:].sum(axis=0) / (2*B[flag_1[0],:].shape[0])
+            pop2_freq = B[flag_2[0],:].sum(axis=0) / (2*B[flag_2[0],:].shape[0])
+
+            # snp variance is 2p(1-p)
+            pop1_var = 2*pop1_freq*(1-pop1_freq)
+            pop2_var = 2*pop2_freq*(1-pop2_freq)
+
+            # construct fraction
+            numerator = np.sqrt(pop1_var*pop2_var)
+            denominator = np.sqrt(np.reciprocal(pop1_var*pop2_var))
+            scale_by = np.outer(numerator, denominator)
+
+            # convert to ale count ldsc
+            cor_sum[l_B:l_B+c, 0] += np.nansum(np.multiply(rfuncBB, scale_by), axis=1).reshape(-1,)
+        else:
+            cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncBB, axis=1).reshape(-1,)
 
     return cor_sum
 
@@ -584,22 +656,22 @@ def estimate_LD_score_MAMA(args):
 
     # exclude SNP with unspecified ancestry sources
     df_check = array_snps.IDList.merge(df_snp_ances, how='left', on='SNP', indicator=True)
-    
+
     logging.info('There are {M} SNPs in the merged .bim file without identified source of ancestry groups. These variants are dropped in the LD score estimation.'.format(M=np.sum(df_check._merge=="left_only")))
-    
+
     if np.sum(df_check._merge=="right_only")!=0:
         logging.info('There are {M} SNPs in --snp-ances but are not in the merged .bim file.'.fommat(M=np.sum(df_check._merge=="right_only")))
 
     logging.info(short_border)
 
     #-------------------------
-    # 3. Apply filters 
+    # 3. Apply filters
     #-------------------------
 
     # filter based on the provided snp_ances list
     snps_extract = df_check.loc[df_check._merge=="both","SNP"]
     snps_extract.to_csv(args.out+".snplist", index=False, sep='\t')
-    good_snps = ps.__filter__(args.out+".snplist", 'SNPs', 'include', array_snps) # index 
+    good_snps = ps.__filter__(args.out+".snplist", 'SNPs', 'include', array_snps) # index
     os.remove(args.out+".snplist")
 
     snp_index = dict.fromkeys(ances_ind)
@@ -709,9 +781,9 @@ basic_ldsc.add_argument('--bfile-merged-path', default=None, type=str,
 
 # Filtering / Data Management for LD Score
 data_filter = parser.add_argument_group(title="LD Score Estimation Data Filters", description="Data management options for LD scores.")
-#data_filter.add_argument('--std-geno', default=True, action='store_false', help=argparse.SUPPRESS)
-    #help='This flag applies to cross-ancestry scores only. It tells LDSC to standardize the genotypes within each individual ancestry groups, before calculating the r^2.')
-data_filter.add_argument('--ld-extract', default=None, type=str, 
+data_filter.add_argument('--std-geno-ldsc', default=False, action='store_true',
+      help='Generate LD scores from standardized genotypes (default is allele counts).')
+data_filter.add_argument('--ld-extract', default=None, type=str,
     help='File with SNPs to include in LD Score estimation. The file should contain one SNP ID per row.')
 data_filter.add_argument('--ld-keep', default=None, type=str, 
     help='Single file with individuals to include in LD Score estimation. The file should contain one individual ID per row.')
