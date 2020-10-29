@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 import mama2.mama_pipeline as mp
+import mama2.reg_mama as mr
 import mama2.util.sumstats as ss
 
 
@@ -120,28 +121,28 @@ class TestRunLdScoreRegressions:
         print("\n\n\n")
         ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(
             TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
-            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mp.MAMA_REG_OPT_ALL_ZERO)
+            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mr.MAMA_REG_OPT_ALL_ZERO)
         print("JJ: zero SE2 ld_coef\n", ld_coef)
         print("JJ: zero SE2 int_coef\n", int_coef)
         print("JJ: zero SE2 se2_coef\n", se2_coef)
         print("\n\n\n")
         ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(
             TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
-            TestRunLdScoreRegressions.LD_SCORES, int_fixed_opt=mp.MAMA_REG_OPT_ALL_ZERO)
+            TestRunLdScoreRegressions.LD_SCORES, int_fixed_opt=mr.MAMA_REG_OPT_ALL_ZERO)
         print("JJ: zero intercept ld_coef\n", ld_coef)
         print("JJ: zero intercept int_coef\n", int_coef)
         print("JJ: zero intercept se2_coef\n", se2_coef)
         print("\n\n\n")
         ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(
             TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
-            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mp.MAMA_REG_OPT_IDENT)
+            TestRunLdScoreRegressions.LD_SCORES, se_prod_fixed_opt=mr.MAMA_REG_OPT_IDENT)
         print("JJ: identity se2 ld_coef\n", ld_coef)
         print("JJ: identity se2 int_coef\n", int_coef)
         print("JJ: identity se2 se2_coef\n", se2_coef)
         print("\n\n\n")
         ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(
             TestRunLdScoreRegressions.BETAS, TestRunLdScoreRegressions.SES,
-            TestRunLdScoreRegressions.LD_SCORES, ld_fixed_opt=mp.MAMA_REG_OPT_PERF_CORR)
+            TestRunLdScoreRegressions.LD_SCORES, ld_fixed_opt=mr.MAMA_REG_OPT_PERF_CORR)
         print("JJ: perf corr ld_coef\n", ld_coef)
         print("JJ: perf corr int_coef\n", int_coef)
         print("JJ: perf corr se2_coef\n", se2_coef)

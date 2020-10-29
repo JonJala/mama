@@ -14,12 +14,6 @@ import numpy as np
 import pandas as pd
 
 
-# TODO(jonbjala) Currently exceptions thrown by filters are not caught.  Need to decide whether this
-#                is correct longterm (i.e. filters should never throw or should halt the
-#                whole program if they do), though it seems like SOME kind of error reporting
-#                mechanism would be useful
-
-
 # Constants / Parameters / Types #############
 
 Filter = Callable[[pd.DataFrame], pd.Series]
@@ -44,8 +38,8 @@ def safe_filter(df: pd.DataFrame, filter_name: str, filter_func: Filter) -> Unio
     try:
         return filter_func(df)
     # Disable pylint here since we do want to catch a general exception
-    except Exception as ex:  # pylint: disable=broad-except
-        logging.debug("Caught exception when trying to run filter %s: %s", filter_name, ex)
+    except Exception as exc:  # pylint: disable=broad-except
+        logging.debug("Caught exception when trying to run filter %s: %s", filter_name, exc)
     return None  # This will happen without a return statement, but this is to be explicit about it
 
 

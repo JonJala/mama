@@ -4,9 +4,8 @@
 Python functions that implement the core MAMA processing
 """
 
-import gc
 import logging
-from typing import Any, Dict, List, Set, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -14,8 +13,7 @@ from scipy.stats import norm
 
 from core_mama import (create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega,
                        qc_sigma)
-from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR, run_ldscore_regressions)
+from reg_mama import (MAMA_REG_OPT_ALL_FREE, run_ldscore_regressions)
 from util.df import Filter, intersect_indices
 from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
                            A2_COL, P_COL, INFO_COL, N_COL, Z_COL, COMPLEMENT, BASES,
@@ -25,15 +23,15 @@ from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL,
 
 # Constants / Parameters / Types #############
 
-AncestryId = Any
-PhenotypeId = Any
+# Pylint upper-case errors disabled here to adhere to Python typing module conventions
+AncestryId = Any  # pylint: disable=invalid-name
+PhenotypeId = Any  # pylint: disable=invalid-name
 PopulationId = Tuple[AncestryId, PhenotypeId]
 
 # Columns that MAMA requires
 MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL, BP_COL, P_COL}
 
 # Map of default regular expressions used to convert summary stat column names to standardized names
-# TODO(jonbjala) Refine these more, just use these values are placeholders for now
 MAMA_RE_EXPR_MAP = {
     SNP_COL : '.*SNP.*|.*RS.*',
     BP_COL : '.*BP.*|.*POS.*',
@@ -125,7 +123,7 @@ MAMA_STD_FILTERS = {fname : (finfo['func'], finfo['description'])
                     for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
 
 # Calculate constants used in determination of P values for MAMA
-ln = np.log
+ln = np.log  # pylint: disable=invalid-name
 LN_2 = ln(2.0)
 RECIP_LN_10 = np.reciprocal(ln(10.0))
 
@@ -208,7 +206,7 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
                  len(snp_intersection))
 
     # Reduce each DF down to the SNP intersection
-    for pop_id, pop_df in sumstats.items():
+    for pop_df in sumstats.values():
         snps_to_drop = pop_df.index.difference(snp_intersection)
         pop_df.drop(snps_to_drop, inplace=True)
     snps_to_drop = ldscores.index.difference(snp_intersection)
@@ -216,16 +214,16 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
 
     # Standardize alleles in the summary statistics
     logging.info("\nStandardizing reference alleles in summary statistics.")
-    ref_popid, drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)
+    ref_popid, tot_drop_indices, drop_dict, ref_flip_dict = standardize_all_sumstats(sumstats)  # pylint: disable=unused-variable,line-too-long
     logging.info("Standardized to population: %s", ref_popid)
-    logging.info("Dropped %s SNPs during reference allele standardization." % drop_indices.sum())
+    logging.info("Dropped %s SNPs during reference allele standardization.", tot_drop_indices.sum())
     if logging.root.level <= logging.DEBUG:
         logging.debug("RS IDs of drops during standardization: %s",
-                      sumstats[ref_popid].index[drop_indices].to_list())
+                      sumstats[ref_popid].index[tot_drop_indices].to_list())
 
     # Drop SNPs as a result of standardization of reference alleles
-    for pop_id, pop_df in sumstats.items():
-        pop_df.drop(pop_df.index[drop_indices], inplace=True)
+    for pop_df in sumstats.values():
+        pop_df.drop(pop_df.index[tot_drop_indices], inplace=True)
 
 
 #################################
@@ -288,33 +286,33 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
 
 
 #################################
-def calculate_n_eff(pop: int, n_orig: np.ndarray, sigma: np.ndarray, se: np.ndarray) -> np.ndarray:
+def calculate_n_eff(pop: int, n_orig: np.ndarray, sigma: np.ndarray, ses: np.ndarray) -> np.ndarray:
     """
     Function that calculates effective N
 
     :param pop: Number of the population (used to index into sigma)
     :param n_orig: Array of original per-SNP N values for this population
     :param sigma: MxPxP matrix of Sigma values
-    :param se: Array of length M of standard errors
+    :param ses: Array of length M of standard errors
 
     :return: The array of per-SNP effective N's
     """
-    return n_orig * sigma[:, pop, pop] * np.reciprocal(np.square(se))
+    return n_orig * sigma[:, pop, pop] * np.reciprocal(np.square(ses))
 
 
 #################################
-def calculate_p(z: np.array) -> np.array:
+def calculate_p(z_scores: np.array) -> np.array:
     """
     Function that calculates P for the MAMA results
 
-    :param z: Z scores
+    :param z_scores: Z scores
 
     :return: P values for MAMA
              (as strings, to allow for very large negative exponents)
     """
     # Since P = 2 * normal_cdf(-|Z|), P = e ^ (log_normal_cdf(-|Z|) + ln 2)
     # This can be changed to base 10 as P = 10 ^ ((log_normal_cdf(-|Z|) + ln 2) / ln 10)
-    log_10_p = RECIP_LN_10 * (norm.logcdf(-np.abs(z)) + LN_2)
+    log_10_p = RECIP_LN_10 * (norm.logcdf(-np.abs(z_scores)) + LN_2)
 
     # Break up the log based 10 of P values into the integer and fractional part
     frac_part, int_part = np.modf(log_10_p)
@@ -329,10 +327,9 @@ def calculate_p(z: np.array) -> np.array:
 
 
 #################################
-# TODO(jonbjala) Allowing specifying population order?  For now go with order in sumstats dictionary
 def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], snp_list: str = None,
-                  column_maps: Dict[PopulationId, Dict[str, str]] = {},
-                  re_expr_map: Dict[str, str] = MAMA_RE_EXPR_MAP,
+                  column_maps: Dict[PopulationId, Dict[str, str]] = None,
+                  re_expr_map: Dict[str, str] = None,
                   filters: Dict[str, Tuple[Filter, str]] = MAMA_STD_FILTERS,
                   ld_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   se_prod_opt: Any = MAMA_REG_OPT_ALL_FREE,
@@ -358,6 +355,14 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
                                               the same dictionary passed in, but with updated
                                               summary statistics)
     """
+
+    # If column maps are not specified, set to empty dictionary
+    if not column_maps:
+        column_maps = dict()
+
+    # If regular expression map isn't specified, use MAMA default
+    if not re_expr_map:
+        re_expr_map = MAMA_RE_EXPR_MAP.copy()
 
     # Check / read in LD scores and then QC
     logging.info("\n\nReading in and running QC on LD Scores")
@@ -431,38 +436,52 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # Check omega and sigma for validity based on positive (semi-)definiteness
     # Create drop arrays shapes that allow for broadcasting and comparison later
-    omega_drops = np.logical_not(qc_omega(omega))
+    omega_pos_semi_def, tweaked_omegas = qc_omega(omega)
+    omega_drops = np.logical_not(omega_pos_semi_def)
     sigma_drops = np.logical_not(qc_sigma(sigma))
     omega_sigma_drops = np.logical_or(omega_drops, sigma_drops)
     logging.info("Average Omega (including dropped slices) =\n%s", omega.mean(axis=0))
     logging.info("Average Sigma (including dropped slices) =\n%s", sigma.mean(axis=0))
 
-    logging.info("Dropped %s SNPs due to non-positive-semi-definiteness of omega.",
+    logging.info("\nAdjusted %s SNPs to make omega positive semi-definite.",
+                 tweaked_omegas.sum())
+    if logging.root.level <= logging.DEBUG:
+        omega_tweaked_rsids = ldscores.index[tweaked_omegas].to_list()
+        logging.debug("\tRS IDs = %s", omega_tweaked_rsids[:MAX_RSID_LOGGING] + ["..."]
+                      if len(omega_tweaked_rsids) > MAX_RSID_LOGGING else omega_tweaked_rsids)
+
+    logging.info("\nDropped %s SNPs due to non-positive-semi-definiteness of omega.",
                  omega_drops.sum())
     if logging.root.level <= logging.DEBUG:
         omega_drop_rsids = ldscores.index[omega_drops].to_list()
         logging.debug("\tRS IDs = %s", omega_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
                       if len(omega_drop_rsids) > MAX_RSID_LOGGING else omega_drop_rsids)
+
     logging.info("Dropped %s SNPs due to non-positive-definiteness of sigma.",
                  sigma_drops.sum())
     if logging.root.level <= logging.DEBUG:
         sigma_drop_rsids = ldscores.index[sigma_drops].to_list()
         logging.debug("\tRS IDs = %s", sigma_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
                       if len(sigma_drop_rsids) > MAX_RSID_LOGGING else sigma_drop_rsids)
+
     logging.info("Dropped %s total SNPs due to non-positive-(semi)-definiteness of omega / sigma.",
                  omega_sigma_drops.sum())
     if logging.root.level <= logging.DEBUG:
         os_drop_rsids = ldscores.index[omega_sigma_drops].to_list()
         logging.debug("\tRS IDs = %s", os_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
                       if len(os_drop_rsids) > MAX_RSID_LOGGING else os_drop_rsids)
-    os_drops_reshaped = omega_sigma_drops.reshape((ldscore_arr.shape[0], 1, 1))
+
+    num_snps = ldscore_arr.shape[0]  # pylint: disable=unsubscriptable-object
+    os_drops_reshaped = omega_sigma_drops.reshape((num_snps, 1, 1))
 
     # Run the MAMA method
     # Use identity matrices for "bad" SNPs to allow vectorized operations without having to copy
     logging.info("\n\nRunning main MAMA method.")
     new_betas, new_beta_ses = run_mama_method(beta_arr,
-                              np.where(os_drops_reshaped, np.identity(omega.shape[1]), omega),
-                              np.where(os_drops_reshaped, np.identity(sigma.shape[1]), sigma))
+                                              np.where(os_drops_reshaped,
+                                                       np.identity(omega.shape[1]), omega),
+                                              np.where(os_drops_reshaped,
+                                                       np.identity(sigma.shape[1]), sigma))
 
     # Copy values back to the summary statistics DataFrames
     # Also, perform any remaining calculations / formatting

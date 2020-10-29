@@ -119,9 +119,9 @@ def reg_ex(s_input: str) -> str:
     stripped_regex = s_input.strip()
     try:
         re.compile(stripped_regex)
-    except re.error as ex:
+    except re.error as exc:
         raise RuntimeError("Invalid regular expression \"%s\" supplied: %s" %
-                           (stripped_regex, ex))
+                           (stripped_regex, exc))
 
     return stripped_regex
 
@@ -664,9 +664,9 @@ def construct_ss_and_col_maps(pargs: argp.Namespace, re_map: Dict[str, str])\
         ss_map[(anc, phen)] = ss_file
         try:
             col_map[(anc, phen)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
-        except RuntimeError as ex:
+        except RuntimeError as exc:
             raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
-                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, ex))
+                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, exc))
 
     return col_map, ss_map
 
@@ -780,8 +780,8 @@ def main_func(argv: List[str]):
         logging.info("\nExecution complete.\n")
 
     # Disable pylint error since we do actually want to capture all exceptions here
-    except Exception as ex:  # pylint: disable=broad-except
-        logging.exception(ex)
+    except Exception as exc:  # pylint: disable=broad-except
+        logging.exception(exc)
         sys.exit(1)
 
 

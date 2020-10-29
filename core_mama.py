@@ -5,6 +5,7 @@ Python functions that implement the core MAMA processing
 """
 
 import gc
+from typing import Tuple
 
 import numpy as np
 
@@ -56,8 +57,7 @@ def tweak_omega(omega_slice: np.ndarray) -> np.ndarray:
 
 
 #################################
-# TODO(jonbjala) Return array indicating which omegas were tweaked?
-def qc_omega(omega: np.ndarray) -> np.ndarray:
+def qc_omega(omega: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """
     Runs checks over the omega matrices for positive-semi-definiteness.  Tweaks omega where possible
     to correct for non-positive-semi-definiteness and returns an array of length M
@@ -67,13 +67,17 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
 
     :param omega: MxPxP matrix for Omega values
 
-    :return np.ndarray: Array of length M where True indicates positive semi-definiteness and False
-                        indicates non-positive semi-definiteness
+    :return: Tuple containing:
+                1) Array of length M where True indicates positive semi-definiteness and False
+                   indicates non-positive semi-definiteness
+                2) Array of length M where True indicates the omega was tweaked to make it
+                   positive semi-definite (False otherwise)
     """
 
-    # Create result vector of length M, all values defaulting to False
+    # Create result vectors of length M, all values defaulting to False
     M = omega.shape[0]
-    result = np.full(M, False)
+    pos_semi_def_indices = np.full(M, False)
+    tweaked_omega_indices = np.full(M, False)
 
     # Iterate over the M PxP matrices of sigma
     for i in range(M):
@@ -81,7 +85,7 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
 
         # Check for positive semi-definiteness (if PSD, set to True and move on)
         if np.all(np.linalg.eigvalsh(omega_slice) >= 0.0):
-            result[i] = True
+            pos_semi_def_indices[i] = True
             continue
 
         # If diagonal entries aren't positive, move on
@@ -90,9 +94,10 @@ def qc_omega(omega: np.ndarray) -> np.ndarray:
 
         # We can try to tweak ths slice of omega to become positive semi-definite
         omega[i, :, :] = tweak_omega(omega_slice)
-        result[i] = True
+        pos_semi_def_indices[i] = True
+        tweaked_omega_indices[i] = True
 
-    return result
+    return pos_semi_def_indices, tweaked_omega_indices
 
 
 #################################
@@ -149,7 +154,7 @@ def qc_sigma(sigma: np.ndarray) -> np.ndarray:
         try:
             np.linalg.cholesky(sigma_slice)
             result[i] = True
-        except np.linalg.LinAlgError as e:
+        except np.linalg.LinAlgError:
             # If not positive definite, then the Cholesky decomposition raises a LinAlgError
             pass
 
@@ -183,11 +188,13 @@ def run_mama_method(betas, omega, sigma):
     center_matrix_inv = -omega_pp_scaled[:, :, :, np.newaxis] * omega[:, :, np.newaxis, :]
     center_matrix_inv += omega[:, np.newaxis, :, :] + sigma[:, np.newaxis, :, :] # Broadcast add
     center_matrix = np.linalg.inv(center_matrix_inv) # Inverts each slice separately
-    del center_matrix_inv; gc.collect() # Clean up the inverse matrix to free space
+    del center_matrix_inv  # Clean up the inverse matrix to free space
+    gc.collect()
 
     # Calculate (Omega'_p,j/omega_pp,j) * center_matrix
     left_product = np.matmul(omega_pp_scaled[:, :, np.newaxis, :], center_matrix)
-    del center_matrix; gc.collect() # Clean up the center matrix to free space
+    del center_matrix  # Clean up the center matrix to free space
+    gc.collect()
 
     # Calculate denominator (M x P x 1 x 1)
     denom = np.matmul(left_product,
