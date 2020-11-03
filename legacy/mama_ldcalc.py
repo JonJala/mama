@@ -58,6 +58,7 @@ def getBlockLefts(coords, max_dist):
 
     return block_left
 
+
 def getBlockM(coords, max_dist):
     '''
     Converts coordinates + max block length to total number of SNPs tagged by the index j
@@ -75,41 +76,20 @@ def getBlockM(coords, max_dist):
         block_size[j] :=  max{l | l > j, dist(j,l) < max_dist} - min{k | k < j, dist(k,j) < max_dist}.
 
     '''
-    if True:
-        obj_mat = np.tile(coords.reshape(-1,1), coords.shape[0])
-        thres_mat_l = (obj_mat-float(max_dist)).T
-        thres_mat_h = (obj_mat+float(max_dist)).T
-        block_mat = np.logical_and(obj_mat>thres_mat_l, obj_mat<thres_mat_h)
-        #block_mat[np.triu_indices(coords.shape[0])] = False
-        block_size = np.sum(block_mat, axis = 1)
 
-    else:    
-        M = len(coords)
-        block_size = np.zeros(M)
-        block_left = np.zeros(M)
-        block_right = np.zeros(M)
-
-        j = 0
-        l = M
-
-        for i in range(M):
-            while j < i and abs(coords[j] - coords[i]) > max_dist:
-                j += 1
-
-            block_left[i] = j
-
-        for i in reversed(list(range(M))):
-            while l > i and abs(coords[l] - coords[i]) > max_dist:
-                l -= 1
-            block_right[i] = l
-
-        block_size[i] = l - j
+    obj_mat = np.tile(coords.reshape(-1,1), coords.shape[0])
+    thres_mat_l = (obj_mat-float(max_dist)).T
+    thres_mat_h = (obj_mat+float(max_dist)).T
+    block_mat = np.logical_and(obj_mat>thres_mat_l, obj_mat<thres_mat_h)
+    block_size = np.sum(block_mat, axis = 1)
 
     return block_size
+
 
 def l2_unbiased(x, n):
     sq = np.square(x)
     return sq - (1-sq) / (n-2)
+
 
 def std_geno_old(geno, ances_index):
     ances_geno = geno[ances_index,:]
@@ -118,6 +98,7 @@ def std_geno_old(geno, ances_index):
 
     return (ances_geno-avg) / sd
 
+
 def std_geno(geno, ances_index):
 
     # Modified version of standardization that drops the SNP with zero sd.
@@ -125,14 +106,12 @@ def std_geno(geno, ances_index):
     ances_geno = geno[ances_index,:]
     avg = np.mean(ances_geno, axis=0)
     sd = np.std(ances_geno, axis=0)
-    #sd = np.power(2*(avg/2)*(1-(avg/2)), 0.5)
-    #mono = np.sum(sd==0)
-    #if mono != 0:
-    #    logging.info('There are {M} monomorphic variants in the {ances} sample.'.format(M=mono, ances=ances))
+
     out = np.zeros_like(ances_geno)
     out[:,np.where(sd!=0)[0]]=(ances_geno[:,np.where(sd!=0)[0]] - avg[np.where(sd!=0)[0]])/sd[np.where(sd!=0)[0]]
 
     return out
+
 
 def scale_trans(A, B, ances_index, exp):
     """
@@ -157,19 +136,12 @@ def scale_trans(A, B, ances_index, exp):
     assert len(A_std.shape) == len(B_std.shape)
     A_homo = np.sum(A_std==0)
     B_homo = np.sum(B_std==0)
-    #if A_homo > 0 or B_homo > 0:
-    #    logging.info("Warning: There are monomorphic variants...LD scores will be assigned NaN.")
-
-    # # use HW equilibrium to calculate STD
-    #A_maf = A_avg / 2.
-    #B_maf = B_avg / 2.
-    #A_factor = np.power(2*A_maf*(1-A_maf), -1)
-    #B_factor = np.power(2*B_maf*(1-B_maf), (exp/2)-0.5)
     
     A_new = (A_geno - A_avg) * A_factor
     B_new = (B_geno - B_avg) * B_factor 
 
     return (A_new, B_new)
+
 
 class __GenotypeArrayInMemory__(object):
     '''
