@@ -74,26 +74,6 @@ np.set_printoptions(precision=3)
 
 ## Helper functions
 
-class Logger_to_Logging(object):
-    """
-    Logger class that write uses logging module and is needed to use munge_sumstats or ldsc from the LD score package.
-    """
-    def __init__(self):
-        logging.info('created Logger instance to pass through ldsc.')
-        super(Logger_to_Logging, self).__init__()
-
-    def log(self,x):
-        logging.info(x)
-
-class DisableLogger(object):
-    '''
-    For disabling the logging module when calling munge_sumstats
-    '''
-    def __enter__(self):
-       logging.disable(logging.CRITICAL)
-    def __exit__(self, a, b, c):
-       logging.disable(logging.NOTSET)
-
 def sec_to_str(t):
     '''Convert seconds to days:hours:minutes:seconds'''
     [d, h, m, s, n] = reduce(lambda ll, b : divmod(ll[0], b) + ll[1:], [(t, 1), 60, 60, 24])
@@ -108,19 +88,6 @@ def sec_to_str(t):
     f += '{S}s'.format(S=s)
     return f
 
-def safely_create_folder(folder_path):
-    try:
-        os.makedirs(folder_path)
-    except OSError:
-        if not os.path.isdir(folder_path):
-            raise
-
-def matrix_fillin(on_diag, off_diag, n, fill=None):
-    x = np.full((n, n), fill, dtype=object)
-    x[np.diag_indices(n)] = on_diag
-    x[np.triu_indices(n,k=1)] = off_diag
-    x[np.tril_indices(x.shape[0], k=-1)]=x[np.triu_indices(x.shape[0],k=1)]
-    return x
 
 ## Major functions
 
@@ -188,21 +155,18 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
             # pairwise LD calculation
             logging.info('Begin calculating LD scores based on {P1}-{P2}'.format(P1=ances_ind[t], P2=ances_ind[j]))
             eff_ances_flag = ances_flag.loc[indlist,:].reset_index(drop=True) # added 9/28 for T>2 ancestry
-            #pair_ldscore = pair_ldScoreVarBlocks_OLD(args, t, j, ances_ind, eff_ances_flag, ances_n, c, block_left, geno_array)
             pair_ldscore = pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c, block_left, array_obj, array_file, n, array_snps, snplist, indlist, bootstrap=None)
 
             logging.info('Recording {M} scores...'.format(M=pair_ldscore.shape[0]))
             mama_ld_df.loc[geno_array.kept_snps, '{P1}_{P2}'.format(P1=ances_ind[t],P2=ances_ind[j])] = pair_ldscore[:,0].reshape(-1,)
 
             mama_ld_flat.append(pair_ldscore)
-            #mama_ld_dict['{p1}_{p2}'.format(p1=ances_ind[t], p2=ances_ind[j])] = pair_ldscore
             logging.info(short_border+"\n")
 
     # construct matrices
     mama_ld_mat = np.empty(shape=[T,T], dtype=object)
     mama_ld_mat.fill(np.nan)
     mama_ld_mat[np.triu_indices(T)] = mama_ld_flat
-    #mama_ld_mat[(np.triu_indices(T)[1],np.triu_indices(T)[0])] = mama_ld_flat
 
     # monomorphic variants
     mama_mono_log = pd.DataFrame(index=col_list)
@@ -216,10 +180,6 @@ def multi_ldScoreVarBlocks(args, ances_ind, ances_flag, ances_n, snp_index, ind_
 
     mama_ld_df = mama_ld_df.replace(0, np.NaN)
     
-    #on_diag = mama_ld_dict[['{P}_{P}'.format(P=x) for x in ances_ind]]
-    #off_diag = mama_ld_dict[['_'.join(x) for x in score_tags]]
-    #mama_ld_mat = matrix_fillin(on_diag, off_diag, len(ances_ind))
-
     return mama_ld_mat, mama_ld_df, M, M_5_50
 
 def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size, block_left, array_obj, array_file, array_n, array_snps, snplist, indlist, bootstrap=None):
@@ -286,7 +246,6 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             rfuncAB_2 = np.dot(A_trans[:].T, B_trans[:] / ances_n[j])
 
             assert np.allclose(rfuncAB_1,rfuncAB_2, atol=1e-08), "The SNP correlations for the same ancestry group do not match!"
-            # absolute(a - b) <= (atol + rtol * absolute(b))
 
             if args.no_single_correct:
                 rfuncAB = np.multiply(rfuncAB_1, rfuncAB_2)
@@ -397,14 +356,10 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             numerator = np.sqrt(pop1_var_A*pop2_var_A)
             denominator = np.sqrt(np.reciprocal(pop1_var_B*pop2_var_B))
             scale_by = np.outer(numerator, denominator)
-            # numerator_B = np.sqrt(pop1_var_B*pop2_var_B)
-            # denominator_B = np.sqrt(np.reciprocal(pop1_var_B * pop2_var_B))
-            # scale_by_B = np.outer(numerator_B, denominator_B)
 
             cor_sum[l_A:l_A + b, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=1).reshape(-1,)
             cor_sum[l_B:l_B + c, 0] += np.nansum(np.multiply(rfuncAB, scale_by), axis=0).reshape(-1,)
         else:
-
             cor_sum[l_A:l_A+b, 0] += np.nansum(rfuncAB, axis=1).reshape(-1,)
             cor_sum[l_B:l_B+c, 0] += np.nansum(rfuncAB, axis=0).reshape(-1,)
         
@@ -414,7 +369,6 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
             rfuncBB_1 = np.dot(B_trans[:].T, B_trans[:] / ances_n[t])
             rfuncBB_2 = np.dot(B_trans[:].T, B_trans[:] / ances_n[j])
 
-            #assert np.allclose(rfuncBB_1,rfuncBB_2, atol=1e-08), "This error should be catched earlier in the codes!"
             if args.no_single_correct:
                 rfuncBB = np.multiply(rfuncBB_1, rfuncBB_2)
             else:
@@ -563,9 +517,7 @@ def estimate_LD_score_MAMA(args):
     logging.info("Organizing all sets of LD scores based on merged .bim file")
     geno_array = array_obj(array_file, n, array_snps, keep_snps=None, keep_indivs=None, mafMin=args.maf)
     lN_df = lN_df.loc[geno_array.kept_snps,:] 
-    # change of index to pd.indexes.numeric.Int64Index
-    # bim_df = pd.DataFrame(data=geno_array.df, columns=geno_array.colnames)
-    # df = pd.concat([bim_df, lN_df], axis=1)
+
     df = pd.DataFrame.from_records(np.c_[geno_array.df, lN_df])
     out_fname = args.out + '.' + file_suffix + '.ldscore'
     new_colnames = geno_array.colnames + list(lN_df.columns)
@@ -609,9 +561,6 @@ def estimate_LD_score_MAMA(args):
 
     # print .M_5_50
     np.save(args.out + '.'+ file_suffix +'.M_5_50', M_5_50)
-
-    # start_time isn't defined in this method
-    # logging.info('MAMA score estimation completed. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
     return df
 
@@ -666,8 +615,6 @@ advanced_opt.add_argument('--ldBlockSize', default=False, action='store_true',
 
 
 def main_func(argv):
-    # I feel like this came up in PGI, I forget what the solution is but passing everything in sys.argv
-    # also includes the path to the script itself, so you get an error that mama_ldscore.py isn't an accepted flag.
     args = parser.parse_args(argv[1:])
 
     logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
