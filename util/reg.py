@@ -28,10 +28,10 @@ def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,
     """
 
     # Determine number of independent variables (including constrained / fixed coefficient ones)
-    N_var = indep_vars.shape[1]
+    n_var = indep_vars.shape[1]
 
     # Create empty solution vector
-    result = np.zeros(N_var)
+    result = np.zeros(n_var)
 
     # Process any fixed-coefficient variables
     if fixed_coefs is not None:  # Check explicitly against None since ndarray is not True or False
@@ -51,7 +51,7 @@ def run_regression(dep_var: np.ndarray, indep_vars: np.ndarray,
     else:
         # All variables are unconstrained and dependent variable is read-only
         dep_var_vect = dep_var
-        unconstrained_var_indices = np.full(N_var, True)
+        unconstrained_var_indices = np.full(n_var, True)
 
     # Run the regression on the (remaining) unconstrained variables
     # It returns a tuple, but we only care about the first element

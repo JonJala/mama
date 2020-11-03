@@ -272,28 +272,32 @@ class TestQcSigma:
 class TestQcOmega:
 
     #########
-    @pytest.mark.parametrize("omega, expected",
+    @pytest.mark.parametrize("omega, exp_psd, exp_tweaks",
         [
             (
                 [[[1, 0], [0, 1]], [[2, 1], [1, 2]], [[3, 0], [0, 3]]],
-                [True, True, True]
+                [True, True, True],
+                [False, False, False]
             ),
             (
                 [[[2, -1, 0], [-1, 2, -1], [0, -1, 2]],
                  [[-2, -1, 0], [-1, -2, -1], [0, -1, -2]],
                  [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
                  [[2, 2, 2], [2, 1, 3], [2, 3, 2]]],
-                [True, False, True, True]
+                [True, False, True, True],
+                [False, False, False, True]
             )
         ])
     # TODO(jonbjala) Add a few more cases?
-    def test__varying_omega_slices__return_expected(self, omega, expected):
+    def test__varying_omega_slices__return_expected(self, omega, exp_psd, exp_tweaks):
         omega_arr = np.array(omega)
-        expected_arr = np.array(expected)
+        expected_pos_semi_def_arr = np.array(exp_psd)
+        expected_tweaked = np.array(exp_tweaks)
 
-        result_arr = core_mama.qc_omega(omega_arr)
+        pos_semi_def_arr, tweaked_arr = core_mama.qc_omega(omega_arr)
 
-        assert np.array_equal(result_arr, expected_arr)
+        assert np.array_equal(pos_semi_def_arr, expected_pos_semi_def_arr)
+        assert np.array_equal(tweaked_arr, expected_tweaked)
 
 
 ###########################################

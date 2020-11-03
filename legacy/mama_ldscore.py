@@ -781,8 +781,6 @@ basic_ldsc.add_argument('--bfile-merged-path', default=None, type=str,
 
 # Filtering / Data Management for LD Score
 data_filter = parser.add_argument_group(title="LD Score Estimation Data Filters", description="Data management options for LD scores.")
-# data_filter.add_argument('--ale-ct-ldsc', default=False, action='store_true',
-#     help='Generate LD scores from allele counts (default is standardized genotypes).')
 data_filter.add_argument('--std-geno-ldsc', default=False, action='store_true',
       help='Generate LD scores from standardized genotypes (default is allele counts).')
 data_filter.add_argument('--ld-extract', default=None, type=str,

@@ -4,7 +4,7 @@
 Python functions for QC and harmonization of summary statistics and LD scores
 """
 
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 
@@ -19,6 +19,10 @@ MAMA_REG_OPT_OFFDIAG_ZERO = "offdiag_zero"
 MAMA_REG_OPT_IDENT = "identity"
 MAMA_REG_OPT_PERF_CORR = "perfect_corr"
 
+LD_SCORE_COEF = 0
+CONST_COEF = 1
+SE_PROD_COEF = 2
+N_VARS = 3  # There are 3 coefficient matrices being determined, see lines immediately above
 
 # Functions ##################################
 
@@ -63,7 +67,7 @@ def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> 
 
 #################################
 def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscores: np.ndarray,
-	                        **kwargs: Dict[Any, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                            **kwargs: Dict[Any, Any]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Runs the LD score and beta SE regression.  Assumes the PxP submatrices in the ldscores and the
     P columns of harmonized summary stat data have the same ordering of corresponding ancestries.
@@ -77,12 +81,6 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
     :return: A tuple holding regression coefficient matrices (ldscore, constant, and se^2),
              each one a PxP ndarray
     """
-
-    # Useful constants
-    LD_SCORE_COEF = 0
-    CONST_COEF = 1
-    SE_PROD_COEF = 2
-    N_VARS = 3  # There are 3 coefficient matrices being determined, see lines immediately above
 
     # Determine some ndarray / matrix dimension lengths
     M = harm_betas.shape[0]

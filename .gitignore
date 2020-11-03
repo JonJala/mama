@@ -21,3 +21,6 @@
 *.hrm
 *.cf
 
+# Ignore coverage info
+.coverage*
+**/htmlcov

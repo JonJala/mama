@@ -11,18 +11,19 @@ import logging
 import os
 import re
 import sys
-from typing import Any, Callable, Dict, Iterable, List, Set, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 
 from mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS,
-                            DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, FREQ_FILTER, CHR_FILTER,
-                            SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline, write_sumstats_to_file)
+                           DEFAULT_MAF_MIN, DEFAULT_MAF_MAX, FREQ_FILTER, CHR_FILTER,
+                           SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline, PopulationId,
+                           write_sumstats_to_file)
 from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                       MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
-from util.df import determine_column_mapping
-from util.sumstats import SNP_COL, create_freq_filter
+                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
+from util.df import determine_column_mapping, Filter
+from util.sumstats import SNP_COL, create_chr_filter, create_freq_filter
 
 
 # Constants / Parameters / Types #############
@@ -67,9 +68,9 @@ REG_FILENAME_FSTR = "regression_coef_filename_format_str"
 
 # Dictionaries that create and map argparse flags to the corresponding column affected
 MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower()
-                         for col in MAMA_RE_EXPR_MAP.keys()}
+                         for col in MAMA_RE_EXPR_MAP}
 MAMA_RE_ADD_FLAGS = {col : "add-%s-col-match" % col.lower()
-                     for col in MAMA_RE_EXPR_MAP.keys()}
+                     for col in MAMA_RE_EXPR_MAP}
 
 # Default prefix to use for output when not specified
 DEFAULT_FULL_OUT_PREFIX = "%s/%s" % (os.getcwd(), DEFAULT_SHORT_PREFIX)
@@ -102,56 +103,56 @@ def numpy_err_handler(err: str, flag: bytes):
     :param err: String describing the error
     :param flag: A byte describing the error (see numpy.seterrcall() docs)
     """
-    logging.error("Received Numpy error: %s", err)
+    logging.error("Received Numpy error: %s (%s)", err, flag)
 
 
 #################################
-def reg_ex(s:str) -> str:
+def reg_ex(s_input: str) -> str:
     """
     Used for parsing some inputs to this program, namely regular expressions given as input.
     Whitespace is removed, but no case-changing occurs.
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return str: The regular expression
     """
-    stripped_regex = s.strip()
+    stripped_regex = s_input.strip()
     try:
         re.compile(stripped_regex)
-    except re.error as ex:
+    except re.error as exc:
         raise RuntimeError("Invalid regular expression \"%s\" supplied: %s" %
-                           (stripped_regex, ex))
+                           (stripped_regex, exc))
 
     return stripped_regex
 
 
-def input_file(s:str) -> str:
+def input_file(s_input: str) -> str:
     """
     Used for parsing some inputs to this program, namely filenames given as input.
     Whitespace is removed, but no case-changing occurs.  Existence of the file is verified.
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return str: The filename
     """
-    stripped_file = s.strip()
+    stripped_file = s_input.strip()
     if not os.path.exists(stripped_file):
         raise FileNotFoundError("The input file [%s] does not exist." % stripped_file)
 
     return os.path.abspath(stripped_file)
 
 
-def input_prefix(s:str) -> str:
+def output_prefix(s_input: str) -> str:
     """
-    Used for parsing some inputs to this program, namely full file prefixes given as input.
+    Used for parsing some inputs to this program, namely full file prefixes used for output.
     Whitespace is removed, but no case-changing occurs.
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return str: The prefix
     """
 
-    stripped_p = s.strip()
+    stripped_p = s_input.strip()
 
     # Validate existence of output directory (and that no conflicts exist)
     if os.path.exists(stripped_p):
@@ -165,13 +166,13 @@ def input_prefix(s:str) -> str:
     return stripped_p
 
 
-def ss_input_tuple(s:str) -> Tuple[str, str, str]:
+def ss_input_tuple(s_input: str) -> Tuple[str, str, str]:
     """
     Used for parsing some inputs to this program, namely the triples used to identify summary
     statistics files, ancestries, and phenotypes.  Whitespace is removed, but no case-changing
     occurs.
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return: Tuple (all strings) containing:
                  1) summary statistics file path
@@ -179,37 +180,37 @@ def ss_input_tuple(s:str) -> Tuple[str, str, str]:
                  3) phenotype
     """
     try:
-        ss_file, ancestry, phenotype = map(lambda x: x.strip(), s.split(INPUT_TRIPLE_SEP))
+        ss_file, ancestry, phenotype = map(lambda x: x.strip(), s_input.split(INPUT_TRIPLE_SEP))
     except:
-        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" % s)
+        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" % s_input)
 
     return input_file(ss_file), ancestry.strip(), phenotype.strip()
 
 
-def input_np_matrix(s:str) -> np.ndarray:
+def input_np_matrix(s_input: str) -> np.ndarray:
     """
     Used for parsing some inputs to this program, namely Numpy ndarrays (such as regression
     coefficient matrices).
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return: ndarray containing the matrix in the file indicated
     """
-    filename = input_file(s)
+    filename = input_file(s_input)
     return np.fromfile(filename, sep='\t')
 
 
-def glob_path(s:str) -> List[str]:
+def glob_path(s_input: str) -> List[str]:
     """
     Used for parsing some inputs to this program, namely glob paths (see Python glob module docs).
 
-    :param s: String passed in by argparse
+    :param s_input: String passed in by argparse
 
     :return: List of file paths
     """
-    file_path_list = glob.glob(s)
+    file_path_list = glob.glob(s_input)
     if not file_path_list:
-        raise RuntimeError("Glob string \"%s\" matches with no files." % s)
+        raise RuntimeError("Glob string \"%s\" matches with no files." % s_input)
     return [os.path.abspath(f) for f in file_path_list]
 
 
@@ -239,7 +240,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              "where ANC1 and ANC2 are ancestries.  The ancestry and phenotype "
                              "for a given summary statistics file are used in combination as a "
                              "unique identifier.  Currently, these are all case sensitive." %
-                             (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
+                        (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
     in_opt.add_argument("--ld-scores", type=glob_path, required=True, metavar="GLOB_PATH",
                         help="Path to LD scores file(s).  See python glob module for documentation "
                              "on the string to be provided here (full path with support for \"*\", "
@@ -255,12 +256,12 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
 
     # Output Options
     out_opt = parser.add_argument_group(title="Output Specifications")
-    out_opt.add_argument("--out", metavar="FILE_PREFIX", type=input_prefix,
+    out_opt.add_argument("--out", metavar="FILE_PREFIX", type=output_prefix,
                          default=DEFAULT_FULL_OUT_PREFIX,
                          help="Full prefix of output files (logs, sumstats results, etc.).  If not "
                               "set, [current working directory]/%s = \"%s\" will be used.  "
                               "Note: The containing directory specified must already exist." %
-                              (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
+                         (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
     out_opt.add_argument("--out-reg-coef", action="store_true",
                          help="If specified, MAMA will output the LD regression coefficients "
                               "to disk.  This is useful for reference, but also in the case "
@@ -290,11 +291,11 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "the default/standard logging mode.  It is mutually "
                               "exclusive with the --verbose/--debug option.")
     log_opt.add_argument("--verbose", action="store_true",
-                           help="This option will greatly increase the logging and terminal output "
-                                "of the program compared to the default/standard logging mode.  "
-                                "This is useful for debugging and greater visibility into the "
-                                "processing that is occurring.  It is mutually exclusive with the "
-                                "--quiet option.")
+                         help="This option will greatly increase the logging and terminal output "
+                              "of the program compared to the default/standard logging mode.  "
+                              "This is useful for debugging and greater visibility into the "
+                              "processing that is occurring.  It is mutually exclusive with the "
+                              "--quiet option.")
 
     # Regression Options
     reg_opt = parser.add_argument_group(title="Regression Specifications",
@@ -350,17 +351,16 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     ss_filt_opt = parser.add_argument_group(title="Summary Statistics Filtering Options",
                                             description="Options for filtering/processing "
                                                         "summary stats")
-    # TODO(jonbjala) Decide if this should be defaulted or just processed if specified
     ss_filt_opt.add_argument("--freq-bounds", nargs=2, metavar=("MIN", "MAX"), type=float,
                              help="This option adjusts the filtering of summary statistics.  "
                                   "Specify minimum frequency first, then maximum.  "
                                   "Defaults to minimum of %s and maximum of %s." %
-                                  (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
+                             (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
     ss_filt_opt.add_argument("--allowed-chr-values", type=str.upper, nargs="+",
                              help="This option allows specification of allowed values for the "
                                   "chromosome field in summary statistics.  Case is converted to "
                                   "upper here and in the resulting data.  Default is %s." %
-                                  DEFAULT_CHR_LIST)
+                             DEFAULT_CHR_LIST)
     ss_filt_opt.add_argument("--allow-palindromic-snps", action="store_true",
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
@@ -369,7 +369,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     # Summary Statistics Column Options
     ss_col_opt = parser.add_argument_group(title="Summary Statistics Column Options",
                                            description="Options for parsing summary stats columns")
-    for col in MAMA_RE_EXPR_MAP.keys():
+    for col in MAMA_RE_EXPR_MAP:
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
         col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option adds to the default (case-insenstive) "
@@ -377,14 +377,14 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                         "matching / identifying the %s column.  "
                                         "Use any valid Python re module string.  "
                                         "Mutually exclusive with other --*-%s-col-match options " %
-                                        (MAMA_RE_EXPR_MAP[col], col, col.lower()))
+                                   (MAMA_RE_EXPR_MAP[col], col, col.lower()))
         col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option replaces the default (case-insenstive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
                                         "Use any valid Python re module string.  "
                                         "Mutually exclusive with other --*-%s-col-match options " %
-                                        (MAMA_RE_EXPR_MAP[col], col, col.lower()))
+                                   (MAMA_RE_EXPR_MAP[col], col, col.lower()))
 
     return parser
 
@@ -495,6 +495,10 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
 
     :param argv: List of arguments passed to the program (meant to be sys.argv)
     :param get_parser: Function to call to get argument parser, given a program name
+
+    :return: Tuple of:
+               1) Argparse Namespace of parsed arguments
+               2) Dictionary of user-specified arguments
     """
 
     # Parse the input flags using argparse
@@ -512,92 +516,27 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
         log_level = logging.DEBUG
     else:
         log_level = logging.INFO
-    full_logfile_path = set_up_logger(log_file, log_level)
+    set_up_logger(log_file, log_level)
 
-    # Log header and other information (include parsed, user-specified args at debug level)
-    # Note: This is done at WARNING level to ensure it's displayed
+    # Log header and other information
     logging.info(HEADER)
     logging.info("See full log at: %s\n", os.path.abspath(log_file))
     logging.info("\nProgram executed via:\n%s\n", format_terminal_call(argv))
-    logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
 
-    return parsed_args, user_args, parser
+    return parsed_args, user_args
 
 
 #################################
-# TODO(jonbjala) This function is large enough that it should probably be broken up
-def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
+# Disable pylint branch warning because we actually need all these checks
+def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any]): # pylint: disable=too-many-branches
     """
-    Responsible for coordinating whatever initial validation of inputs can be done
+    Responsible for validating regression-related inputs and populating the internal map with
+    values related to this processing
 
     :param pargs: Result of argparse parsing user command / flags
-    :param user_args: Flags explicitly set by the user along with their values
-
-    :return: Dictionary that contains flags and parameters needed by this program.  It contains
-             user-input flags along with defaults set through argparse, and any additional flags
-             added as calculations proceed
+    :param internal_values: Dictionary containing internal values that might be updated
+                            in this function
     """
-
-    # Prepare dictionary that will hold internal values for this program
-    internal_values = dict()
-
-    # TODO(jonbjala) Verify directory permissions for output?
-    out_dir = os.path.dirname(pargs.out)
-
-    # Validate columns of the LD scores file(s)
-    for ld_score_file in pargs.ld_scores:
-        ld_cols = set(
-            pd.read_csv(ld_score_file, sep=None, engine='python', nrows=1, comment="#").columns)
-        ancestries = {a for ss_file, a, p in pargs.sumstats}
-        anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
-        missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
-            if not("%s_%s" % anc_tuple in ld_cols or "%s_%s" % anc_tuple[::-1] in ld_cols)}
-        if missing_ld_pair_cols:
-            raise RuntimeError("The LD scores file %s is missing columns for the following "
-                               "ancestry pairs: %s" % (ld_score_file, missing_ld_pair_cols))
-        if SNP_COL not in ld_cols:
-            raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
-                               (ld_score_file, SNP_COL))
-
-    # Construct RE map for sumstats column matching (must be done before verifying sumstats columns)
-    re_map = MAMA_RE_EXPR_MAP.copy()
-    for req_col in MAMA_REQ_STD_COLS:
-        additional_re = getattr(pargs, to_arg(MAMA_RE_ADD_FLAGS[req_col]), None)
-        replacement_re = getattr(pargs, to_arg(MAMA_RE_REPLACE_FLAGS[req_col]), None)
-        if additional_re:
-            re_map[req_col] = "%s|%s" % (re_map[req_col], additional_re)
-        elif replacement_re:
-            re_map[req_col] = replacement_re
-    logging.debug("\nRegex map = %s", re_map)
-
-    # Validate columns of all the sumstats files (via trying to map them to standard column names)
-    col_map = dict()
-    ss_map = dict()
-    for ss_file, a, p in pargs.sumstats:
-        cols = list(pd.read_csv(ss_file, sep=None, engine='python', nrows=1, comment="#").columns)
-        ss_map[(a, p)] = ss_file
-        try:
-            col_map[(a, p)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
-        except RuntimeError as ex:
-            raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
-                               "%s and phenotype = %s): %s" % (ss_file, a, p, ex))
-
-    # Create filter map to use for summary statistics
-    filt_map = MAMA_STD_FILTERS.copy()
-    if getattr(pargs, "freq_bounds", None):
-        if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
-            raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
-                               (pargs.freq_bounds[0], pargs.freq_bounds[1]))
-        filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
-                                 "Filters out SNPs with FREQ values outside of [%s, %s]" %
-                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
-    if getattr(pargs, "allowed_chr_values", None):
-        filt_map[CHR_FILTER] = (create_chr_filter(pargs.allowed_chr_values),
-                                "Filters out SNPs with listed chromosomes not in %s" %
-                                pargs.allowed_chr_values)
-    if getattr(pargs, "allow_palindromic_snps", None):
-        del filt_map[SNP_PALIN_FILT]
-    logging.debug("\nFilter map = %s\n", filt_map)
 
     # Process regression coefficient options
     num_pops = len(pargs.sumstats)
@@ -646,6 +585,143 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     logging.debug("Regression coeffient option (SE^2) = %s", internal_values[REG_SE2_COEF_OPT])
 
 
+#################################
+def construct_re_map(pargs: argp.Namespace) -> Dict[str, str]:
+    """
+    Responsible for constructing the regular expressions map for column matching used by this
+    execution of the MAMA program.  It begins with the default map and then adjusts it based on
+    user argparse inputs.
+
+    :param pargs: Result of argparse parsing user command / flags
+
+    :return: Dictionary that maps regular expressions to standard column names
+             (used for column matching used by this execution of the MAMA program)
+    """
+    re_map = MAMA_RE_EXPR_MAP.copy()
+    for req_col in MAMA_REQ_STD_COLS:
+        additional_re = getattr(pargs, to_arg(MAMA_RE_ADD_FLAGS[req_col]), None)
+        replacement_re = getattr(pargs, to_arg(MAMA_RE_REPLACE_FLAGS[req_col]), None)
+        if additional_re:
+            re_map[req_col] = "%s|%s" % (re_map[req_col], additional_re)
+        elif replacement_re:
+            re_map[req_col] = replacement_re
+
+    logging.debug("\nRegex map = %s", re_map)
+    return re_map
+
+
+#################################
+def construct_filter_map(pargs: argp.Namespace) -> Dict[str, Tuple[Filter, str]]:
+    """
+    Responsible for constructing the sumstats filter map for QC of GWAS used by this
+    execution of the MAMA program.  It begins with the default map and then adjusts it based on
+    user argparse inputs.
+
+    :param pargs: Result of argparse parsing user command / flags
+
+    :return: Dictionary that maps names of filters to the function and description of the filter
+             (used for GWAS QC by this execution of the MAMA program)
+    """
+
+    filt_map = MAMA_STD_FILTERS.copy()
+    if getattr(pargs, "freq_bounds", None):
+        if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
+            raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
+                               (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+        filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
+                                 "Filters out SNPs with FREQ values outside of [%s, %s]" %
+                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+    if getattr(pargs, "allowed_chr_values", None):
+        filt_map[CHR_FILTER] = (create_chr_filter(pargs.allowed_chr_values),
+                                "Filters out SNPs with listed chromosomes not in %s" %
+                                pargs.allowed_chr_values)
+    if getattr(pargs, "allow_palindromic_snps", None):
+        del filt_map[SNP_PALIN_FILT]
+
+    logging.debug("\nFilter map = %s\n", filt_map)
+    return filt_map
+
+
+#################################
+def construct_ss_and_col_maps(pargs: argp.Namespace, re_map: Dict[str, str])\
+-> Tuple[Dict[str, Dict[str, str]], Dict[PopulationId, str]]:
+    """
+    Responsible for constructing:
+        1) the map between population ID and column map used for mapping sumstats columns
+        2) the map between population ID (ancestry + phenotype) and summary stats filename
+
+    :param pargs: Result of argparse parsing user command / flags
+
+    :return: Tuple containing:
+                1) the map between population ID and column map used for mapping sumstats columns
+                2) the map between population ID (ancestry + phenotype) and summary stats filename
+    """
+
+    col_map = dict()
+    ss_map = dict()
+    for ss_file, anc, phen in pargs.sumstats:
+        cols = list(pd.read_csv(ss_file, sep=None, engine='python', nrows=1, comment="#").columns)
+        ss_map[(anc, phen)] = ss_file
+        try:
+            col_map[(anc, phen)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
+        except RuntimeError as exc:
+            raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
+                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, exc))
+
+    return col_map, ss_map
+
+
+#################################
+def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
+    """
+    Responsible for coordinating whatever initial validation of inputs can be done
+
+    :param pargs: Result of argparse parsing user command / flags
+    :param user_args: Flags explicitly set by the user along with their values
+
+    :return: Dictionary that contains flags and parameters needed by this program.  It contains
+             user-input flags along with defaults set through argparse, and any additional flags
+             added as calculations proceed
+    """
+
+    # Log user-specified arguments
+    logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
+
+    # Prepare dictionary that will hold internal values for this program
+    internal_values = dict()
+
+    # Get output directory
+    internal_values[OUT_DIR] = os.path.dirname(pargs.out)
+
+    # Validate columns of the LD scores file(s)
+    for ld_score_file in pargs.ld_scores:
+        ld_cols = set(
+            pd.read_csv(ld_score_file, sep=None, engine='python', nrows=1, comment="#").columns)
+        ancestries = {a for ss_file, a, p in pargs.sumstats}
+        anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
+        missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
+                                if not("%s_%s" % anc_tuple in ld_cols or
+                                       "%s_%s" % anc_tuple[::-1] in ld_cols)}
+        if missing_ld_pair_cols:
+            raise RuntimeError("The LD scores file %s is missing columns for the following "
+                               "ancestry pairs: %s" % (ld_score_file, missing_ld_pair_cols))
+        if SNP_COL not in ld_cols:
+            raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
+                               (ld_score_file, SNP_COL))
+
+    # Construct RE map for sumstats column matching (must be done before verifying sumstats columns)
+    internal_values[RE_MAP] = construct_re_map(pargs)
+
+    # Construct maps of pop ID to sumstats file and to column mappings (validate along the way)
+    internal_values[COL_MAP], internal_values[SUMSTATS_MAP] =\
+        construct_ss_and_col_maps(pargs, internal_values[RE_MAP])
+
+    # Create filter map to use for summary statistics
+    internal_values[FILTER_MAP] = construct_filter_map(pargs)
+
+    # Validate and process regression options
+    validate_reg_options(pargs, internal_values)
+
     # If harmonized summary statistics should be written to disk, determine filename format string
     internal_values[HARM_FILENAME_FSTR] = pargs.out + "_%s_%s" + HARMONIZED_SUFFIX \
         if getattr(pargs, "out_harmonized", None) else ""
@@ -659,13 +735,8 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         internal_values[attr] = getattr(pargs, attr)
 
     # Set some extra values based on parsed arg values
-    internal_values[OUT_DIR] = out_dir
     internal_values[OUT_PREFIX] = os.path.basename(pargs.out)
     internal_values[ANCESTRIES] = ancestries
-    internal_values[RE_MAP] = re_map
-    internal_values[COL_MAP] = col_map
-    internal_values[FILTER_MAP] = filt_map
-    internal_values[SUMSTATS_MAP] = ss_map
 
     return internal_values
 
@@ -679,7 +750,7 @@ def main_func(argv: List[str]):
     """
 
     # Perform argument parsing and program setup
-    parsed_args, user_args, parser = setup_func(argv, get_mama_parser)
+    parsed_args, user_args = setup_func(argv, get_mama_parser)
 
     # Set Numpy error handling to shunt error messages to a logging function
     np.seterr(all='call')
@@ -708,8 +779,9 @@ def main_func(argv: List[str]):
         # Log any remaining information TODO(jonbjala) Timing info?
         logging.info("\nExecution complete.\n")
 
-    except Exception as ex:
-        logging.exception(ex)
+    # Disable pylint error since we do actually want to capture all exceptions here
+    except Exception as exc:  # pylint: disable=broad-except
+        logging.exception(exc)
         sys.exit(1)
 
 
