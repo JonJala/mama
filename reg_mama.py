@@ -105,15 +105,23 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
     for i, opt in enumerate(fixed_opts):
         fixed_coefs[i] = fixed_option_helper(P, opt)
 
-    # Calculate diagonal coefficients first
+    # Allocate population weights
+    pop_weights_factor = np.zeros((P, M))
+
+    # Calculate diagonal coefficients first (off-diagonal cases can depend on values from here)
     for p in range(P):
         # Set the needed columns in the regression matrix
         reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p, p] # LD Score column
         reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p], harm_ses[:, p]) # SE product
 
+        # Determine weight factor for this population
+        pop_weights_factor[p] = np.where(ldscores[:, p, p] > 0.0,
+                                         np.sqrt(np.reciprocal(ldscores[:, p, p])), 0.0)
+
         # Run the regression
         result_coefs[:, p, p] = run_regression(
-            np.multiply(harm_betas[:, p], harm_betas[:, p]), reg_matrix,
+            pop_weights_factor[p] * np.multiply(harm_betas[:, p], harm_betas[:, p]),
+            pop_weights_factor[p][:, np.newaxis] * reg_matrix,
             np.ravel(fixed_coefs[:, p, p]))
 
     # Handle the case where MAMA_REG_OPT_PERF_CORR was set
@@ -128,9 +136,13 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
             reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p1, p2] # LD Score column
             reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p1], harm_ses[:, p2]) # SE product
 
+            # Determine weight factor for this population pair (geom. mean of population factors)
+            weight_factor = np.sqrt(pop_weights_factor[p1] * pop_weights_factor[p2])
+
             # Run the regression and set opposing matrix entry to make coef matrix symmetric
             result_coefs[:, p1, p2] = run_regression(
-                np.multiply(harm_betas[:, p1], harm_betas[:, p2]), reg_matrix,
+                weight_factor * np.multiply(harm_betas[:, p1], harm_betas[:, p2]),
+                weight_factor[:, np.newaxis] * reg_matrix,
                 np.ravel(fixed_coefs[:, p1, p2]))
             result_coefs[:, p2, p1] = result_coefs[:, p1, p2]
 

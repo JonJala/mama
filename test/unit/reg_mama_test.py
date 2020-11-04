@@ -17,17 +17,6 @@ import mama2.reg_mama as reg_mama
 
 ###########################################
 
-# TODO(jonbjala) Test this!!
-class TestRunLDScoreRegressions:
-
-    #########
-    def test__preset_inputs__expected_results(self):
-        # TODO(jonbjala) Need some small testcases with precanned data (at least one > 2 pops)
-        assert True
-
-
-###########################################
-
 class TestFixedOptionHelper:
 
     SIZE_LIST = [1, 2, 3, 4]
