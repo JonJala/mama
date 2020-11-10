@@ -125,7 +125,7 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
             np.ravel(fixed_coefs[:, p, p]))
 
     # Handle the case where MAMA_REG_OPT_PERF_CORR was set
-    if ld_fixed_opt == MAMA_REG_OPT_PERF_CORR:
+    if not isinstance(ld_fixed_opt, np.ndarray) and ld_fixed_opt == MAMA_REG_OPT_PERF_CORR:
         ld_sqrt_diag = np.sqrt(np.diag(result_coefs[LD_SCORE_COEF, :, :]))
         fixed_coefs[LD_SCORE_COEF] = np.outer(ld_sqrt_diag, ld_sqrt_diag)
 
