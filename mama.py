@@ -372,14 +372,14 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     for col in MAMA_RE_EXPR_MAP:
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
         col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="REGEX", type=reg_ex,
-                                   help="This option adds to the default (case-insenstive) "
+                                   help="This option adds to the default (case-insensitive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
                                         "Use any valid Python re module string.  "
                                         "Mutually exclusive with other --*-%s-col-match options " %
                                    (MAMA_RE_EXPR_MAP[col], col, col.lower()))
         col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="REGEX", type=reg_ex,
-                                   help="This option replaces the default (case-insenstive) "
+                                   help="This option replaces the default (case-insensitive) "
                                         "regular expression \"%s\" used for "
                                         "matching / identifying the %s column.  "
                                         "Use any valid Python re module string.  "
