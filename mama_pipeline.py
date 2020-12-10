@@ -224,6 +224,7 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     # Drop SNPs as a result of standardization of reference alleles
     for pop_df in sumstats.values():
         pop_df.drop(pop_df.index[tot_drop_indices], inplace=True)
+    ldscores.drop(ldscores.index[tot_drop_indices], inplace=True)
 
 
 #################################
@@ -239,7 +240,8 @@ def write_sumstats_to_file(filename: str, df: pd.DataFrame):
 
 #################################
 def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataFrame,
-                      ordering: List[PopulationId] = None) -> pd.DataFrame:
+                      ordering: List[PopulationId] = None) -> Tuple[np.ndarray, np.ndarray,
+                                                                    np.ndarray]:
     """
     Function that gathers data from DataFrames (betas, ses, etc.) into ndarrays for use in
     vectorized processing
@@ -249,7 +251,7 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
     :param ordering: Optional parameter indicating the order in which populations should be arranged
                      (if not specified, the ordering of the sumstats dictionary keys will be used)
 
-    :return Tuple[np.ndArray, np.ndArray, np.ndArray]: Betas (MxP), SEs (MxP), and LD scores (MxPxP)
+    :return: Betas (MxP), SEs (MxP), and LD scores (MxPxP)
     """
 
     # Make sure ordering is specified
@@ -356,6 +358,9 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
                                               summary statistics)
     """
 
+    # Get number of populations
+    num_pops = len(sumstats)
+
     # If column maps are not specified, set to empty dictionary
     if not column_maps:
         column_maps = dict()
@@ -389,7 +394,6 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     if snp_list:
         snp_list = pd.read_csv(snp_list, sep='\n', engine='python', comment='#',
                                dtype=str, names=[SNP_COL], squeeze=True)
-        # snp_list.set_index(SNP_COL, inplace=True)
         snp_list = pd.Index(data=snp_list, dtype=str)
 
     # Harmonize the summary stats and LD scores (write to disk if requested)
@@ -436,26 +440,31 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # Check omega and sigma for validity based on positive (semi-)definiteness
     # Create drop arrays shapes that allow for broadcasting and comparison later
-    omega_pos_semi_def, tweaked_omegas = qc_omega(omega)
+    omega_pos_semi_def, tweaked_omegas = qc_omega(omega) \
+        if num_pops > 1 else (np.full(omega.shape[0], True), np.full(omega.shape[0], False))
     omega_drops = np.logical_not(omega_pos_semi_def)
     sigma_drops = np.logical_not(qc_sigma(sigma))
     omega_sigma_drops = np.logical_or(omega_drops, sigma_drops)
     logging.info("Average Omega (including dropped slices) =\n%s", omega.mean(axis=0))
     logging.info("Average Sigma (including dropped slices) =\n%s", sigma.mean(axis=0))
 
-    logging.info("\nAdjusted %s SNPs to make omega positive semi-definite.",
-                 tweaked_omegas.sum())
-    if logging.root.level <= logging.DEBUG:
-        omega_tweaked_rsids = ldscores.index[tweaked_omegas].to_list()
-        logging.debug("\tRS IDs = %s", omega_tweaked_rsids[:MAX_RSID_LOGGING] + ["..."]
-                      if len(omega_tweaked_rsids) > MAX_RSID_LOGGING else omega_tweaked_rsids)
+    if num_pops > 1:
+        logging.info("\nAdjusted %s SNPs to make omega positive semi-definite.",
+                     tweaked_omegas.sum())
+        if logging.root.level <= logging.DEBUG:
+            omega_tweaked_rsids = ldscores.index[tweaked_omegas].to_list()
+            logging.debug("\tRS IDs = %s", omega_tweaked_rsids[:MAX_RSID_LOGGING] + ["..."]
+                          if len(omega_tweaked_rsids) > MAX_RSID_LOGGING else omega_tweaked_rsids)
 
-    logging.info("\nDropped %s SNPs due to non-positive-semi-definiteness of omega.",
-                 omega_drops.sum())
-    if logging.root.level <= logging.DEBUG:
-        omega_drop_rsids = ldscores.index[omega_drops].to_list()
-        logging.debug("\tRS IDs = %s", omega_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
-                      if len(omega_drop_rsids) > MAX_RSID_LOGGING else omega_drop_rsids)
+        logging.info("\nDropped %s SNPs due to non-positive-semi-definiteness of omega.",
+                     omega_drops.sum())
+        if logging.root.level <= logging.DEBUG:
+            omega_drop_rsids = ldscores.index[omega_drops].to_list()
+            logging.debug("\tRS IDs = %s", omega_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
+                          if len(omega_drop_rsids) > MAX_RSID_LOGGING else omega_drop_rsids)
+    else:
+        logging.info("\nSkipping positive-semi-definiteness check of Omega due to the"
+                     "presence of only one population.\n")
 
     logging.info("Dropped %s SNPs due to non-positive-definiteness of sigma.",
                  sigma_drops.sum())
