@@ -283,6 +283,18 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "standardized units by selecting this option (units will be "
                               "converted to standard units before processing, and then back to "
                               "allele count before final results are reported)")
+    gen_opt.add_argument("--input-sep", default=None, type=str,
+                         help="This option is what is passed via the \"sep\" argument in Pandas' "
+                              "read_csv() function when reading in summary statistics and LD score "
+                              "files.  This defaults to None, meaning the delimiter "
+                              "will be inferred and the Python parsing engine will be used, which  "
+                              "yields maximum flexibility, but slower performance.  Specifying a "
+                              "value for this flag will cause MAMA to try to use the C parsing "
+                              "engine and can significantly speed up execution, but all input file "
+                              "reads will share this parameter, so it must work for all inputs.  "
+                              "See Pandas' read_csv \"sep\" parameter documentation for more "
+                              "details and information."
+                            )
     #   Logging options (subgroup)
     log_opt = gen_opt.add_mutually_exclusive_group()
     log_opt.add_argument("--quiet", action="store_true",
@@ -767,7 +779,8 @@ def main_func(argv: List[str]):
                                         iargs[COL_MAP], iargs[RE_MAP], iargs[FILTER_MAP],
                                         iargs[REG_LD_COEF_OPT], iargs[REG_SE2_COEF_OPT],
                                         iargs[REG_INT_COEF_OPT], iargs['use_standardized_units'],
-                                        iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR])
+                                        iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR],
+                                        iargs['input_sep'])
 
         # Write out the summary statistics to disk
         logging.info("Writing results to disk.")

@@ -6,6 +6,7 @@ Python functions that implement the core MAMA processing
 
 import logging
 from typing import Any, Dict, List, Tuple, Union
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -130,7 +131,8 @@ RECIP_LN_10 = np.reciprocal(ln(10.0))
 # Functions ##################################
 
 #################################
-def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any) -> pd.DataFrame:
+def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any, sep_arg: Union[None, str] = None
+    ) -> pd.DataFrame:
     """
     Small helper function that handles functionality related to reading in a DataFrame
 
@@ -147,7 +149,12 @@ def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any) -> pd.DataFram
     # If this is (presumably) a filename, read in the file
     if isinstance(possible_df, str):
         logging.info("Reading in %s file: %s", id_val, possible_df)
-        possible_df = pd.read_csv(possible_df, sep=None, engine='python', comment='#')
+
+        # Catch ParserWarning that warns of switch to Python engine if that happens
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=pd.errors.ParserWarning,
+                                    message="Falling back to the \'python\' engine")
+            possible_df = pd.read_csv(possible_df, sep=sep_arg, comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(possible_df, pd.DataFrame):
         raise RuntimeError("ERROR: Either pass in filename or DataFrame for %s rather than [%s]" %
@@ -338,7 +345,8 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
                   int_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   std_units: bool = False,
                   harmonized_file_fstr: str = "",
-                  reg_coef_fstr: str = "") -> Dict[PopulationId, pd.DataFrame]:
+                  reg_coef_fstr: str = "",
+                  sep: Union[None, str] = None) -> Dict[PopulationId, pd.DataFrame]:
     """
     Runs the steps in the overall MAMA pipeline
 
@@ -372,7 +380,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     # Check / read in LD scores and then QC
     logging.info("\n\nReading in and running QC on LD Scores")
     logging.debug("\nList of files: %s", ldscore_list)
-    ldscores = pd.concat((obtain_df(f, "LD Scores") for f in ldscore_list), ignore_index=True)
+    ldscores = pd.concat((obtain_df(f, "LD Scores", sep) for f in ldscore_list), ignore_index=True)
     ldscores = qc_ldscores(ldscores)
 
     # Check / read in summary stats and then QC
@@ -380,7 +388,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
     for pop_id in sumstats.keys():
         # Read in if necessary (and update dictionary)
         logging.info("\n\n")
-        sumstats[pop_id] = obtain_df(sumstats[pop_id], str(pop_id) + " sumstats")
+        sumstats[pop_id] = obtain_df(sumstats[pop_id], str(pop_id) + " sumstats", sep)
 
         # QC summary stats (along with some light validation and some logging of drops)
         pop_df = sumstats[pop_id]
@@ -392,7 +400,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # If a SNP list is given, read that in
     if snp_list:
-        snp_list = pd.read_csv(snp_list, sep='\n', engine='python', comment='#',
+        snp_list = pd.read_csv(snp_list, sep='\n', engine='c', comment='#',
                                dtype=str, names=[SNP_COL], squeeze=True)
         snp_list = pd.Index(data=snp_list, dtype=str)
 
