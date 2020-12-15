@@ -123,6 +123,10 @@ N_EFF_COL = "N_EFF"
 MAMA_STD_FILTERS = {fname : (finfo['func'], finfo['description'])
                     for fname, finfo in MAMA_STD_FILTER_FUNCS.items()}
 
+
+# Regular expression indicating columns to keep in harmonized summary statistics
+MAMA_HARM_COLS_RE = '|'.join(MAMA_REQ_STD_COLS)
+
 # Calculate constants used in determination of P values for MAMA
 ln = np.log  # pylint: disable=invalid-name
 LN_2 = ln(2.0)
@@ -212,10 +216,11 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     logging.info("\n\nNumber of SNPS in initial intersection of all sources: %s",
                  len(snp_intersection))
 
-    # Reduce each DF down to the SNP intersection
+    # Reduce each DF down to the SNP intersection (and drop extraneous columns, too)
     for pop_df in sumstats.values():
         snps_to_drop = pop_df.index.difference(snp_intersection)
         pop_df.drop(snps_to_drop, inplace=True)
+        pop_df.drop(pop_df.columns.difference(MAMA_REQ_STD_COLS), axis=1, inplace=True)
     snps_to_drop = ldscores.index.difference(snp_intersection)
     ldscores.drop(snps_to_drop, inplace=True)
 

@@ -33,7 +33,8 @@ class TestHarmonizeAll:
         ss.A1_COL : ['C', 'T', 'G', 'A', 'C', 'T', 'G', 'A'],
         ss.A2_COL : ['A', 'C', 'T', 'G', 'A', 'C', 'T', 'G'],
         ss.BETA_COL : [1.0, 0.2, 1.0, -0.3, 1.0, 0.5, 1.0, -5.0],
-        ss.FREQ_COL : [0.1, 0.9, 0.5, 0.8, 0.2, 0.75, 0.2, 0.7]
+        ss.FREQ_COL : [0.1, 0.9, 0.5, 0.8, 0.2, 0.75, 0.2, 0.7],
+        "pop1_dummy_col" : [range(1, 9)]
     }
 
     _POP2_SNPS = ['rs050', 'rs100', 'rs200', 'rs300', 'rs325', 'rs350']
@@ -41,7 +42,8 @@ class TestHarmonizeAll:
         ss.A1_COL : ['C', 'A', 'G', 'A', 'T', 'A'],
         ss.A2_COL : ['A', 'C', 'T', 'C', 'C', 'G'],
         ss.BETA_COL : [0.5, -1.0, 1.0, -1.0, -0.2, 0.5],
-        ss.FREQ_COL : [0.8, 0.8, 0.4, 0.5, 0.9, 0.75]
+        ss.FREQ_COL : [0.8, 0.8, 0.4, 0.5, 0.9, 0.75],
+        "pop2_dummy_col" : [range(11, 19)]
     }
 
     _POP3_SNPS = ['rs100', 'rs200', 'rs250', 'rs300', 'rs325', 'rs350', 'rs425', 'rs500']
@@ -49,7 +51,8 @@ class TestHarmonizeAll:
         ss.A1_COL : ['C', 'G', 'A', 'A', 'T', 'G', 'G', 'A'],
         ss.A2_COL : ['A', 'T', 'G', 'C', 'C', 'A', 'A', 'G'],
         ss.BETA_COL : [1.0, 1.0, 0.4, -1.0, 0.7, 0.5, 0.3, -5.0],
-        ss.FREQ_COL : [0.1, 0.3, 0.5, 0.8, 0.2, 0.75, 0.2, 0.7]
+        ss.FREQ_COL : [0.1, 0.3, 0.5, 0.8, 0.2, 0.75, 0.2, 0.7],
+        "pop3_dummy_col" : [range(21, 29)]
     }
 
 
@@ -76,12 +79,14 @@ class TestHarmonizeAll:
         assert 2 in pops
         assert 3 in pops
 
-        # Make sure the populations are the expected length and contain the expected SNPs
+        # Make sure the populations are the expected length, contain the expected SNPs,
+        # and do not contain their dummy columns
         for df in pops.values():
             assert len(df) == 3
             assert all(df[ss.BETA_COL] == 1.0)
             assert all(df[ss.FREQ_COL] <= 0.5)
             assert all(x in df.index for x in ['rs100', 'rs200', 'rs300'])
+            assert df.filter(like="dummy").columns.empty
 
         # Make sure the LD score DF is the expected length and contains the expected SNPs
         assert len(df_ld_copy) == 3
