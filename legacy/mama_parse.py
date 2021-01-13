@@ -71,6 +71,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
 
         def loj(self, externalDf):
             '''Returns indices of those elements of self.IDList that appear in exernalDf.'''
+            import pdb; pdb.set_trace()
             r = externalDf.columns[0]
             l = self.IDList.columns[0]
             merge_df = externalDf.iloc[:, [0]]
@@ -78,7 +79,7 @@ def __ID_List_Factory__(colnames, keepcol, fname_end, header=None, usecols=None)
             z = pd.merge(self.IDList, merge_df, how='left', left_on=l, right_on=r,
                          sort=False)
             ii = z['keep'] == True
-            return np.nonzero(ii)[0]
+            return np.nonzero(list(ii))[0]
 
     return IDContainer
 
