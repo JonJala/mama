@@ -220,7 +220,7 @@ def harmonize_all(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.DataF
     for pop_df in sumstats.values():
         snps_to_drop = pop_df.index.difference(snp_intersection)
         pop_df.drop(snps_to_drop, inplace=True)
-        pop_df.drop(pop_df.columns.difference(MAMA_REQ_STD_COLS), axis=1, inplace=True)
+        pop_df.drop(pop_df.columns.difference(list(MAMA_RE_EXPR_MAP.keys())), axis=1, inplace=True)
     snps_to_drop = ldscores.index.difference(snp_intersection)
     ldscores.drop(snps_to_drop, inplace=True)
 
