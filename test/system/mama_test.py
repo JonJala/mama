@@ -239,7 +239,7 @@ class TestValidateInputs:
 
     LD_OPT_TUPLES = [
         ("dummy_attr", mama.MAMA_REG_OPT_ALL_FREE),
-        ("reg_ld_perf_corr", mama.MAMA_REG_OPT_PERF_CORR)
+        ("reg_ld_set_corr", mama.MAMA_REG_OPT_SET_CORR)
     ]
 
     SE2_OPT_TUPLES = [
@@ -260,15 +260,19 @@ class TestValidateInputs:
 
         n = copy.copy(valid_basic_pargs)
 
+        ld_scale_factor = np.random.rand()
         # Set flag values
         for t in ld_se2_int_tuples:
-            setattr(n, t[0], True)
+            setattr(n, t[0], ld_scale_factor if t[0] == "reg_ld_set_corr" else True)
 
         result = mama.validate_inputs(n, dict())
 
         assert result[mama.REG_LD_COEF_OPT] == ld_se2_int_tuples[0][1]
         assert result[mama.REG_SE2_COEF_OPT] == ld_se2_int_tuples[1][1]
         assert result[mama.REG_INT_COEF_OPT] == ld_se2_int_tuples[2][1]
+
+        if ld_se2_int_tuples[0][1] == mama.MAMA_REG_OPT_SET_CORR:
+            assert result[mama.REG_LD_COEF_SCALE_COEF] == ld_scale_factor
 
     #########
 

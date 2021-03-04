@@ -22,7 +22,7 @@ import mama2.util.sumstats as ss
 
 PRE_SPECIFIED = "prespec"
 
-LD_COEF_OPTS = [mr.MAMA_REG_OPT_ALL_FREE, mr.MAMA_REG_OPT_PERF_CORR, PRE_SPECIFIED]
+LD_COEF_OPTS = [mr.MAMA_REG_OPT_ALL_FREE, mr.MAMA_REG_OPT_SET_CORR, PRE_SPECIFIED]
 @pytest.fixture(scope="function", params=LD_COEF_OPTS)
 def ldc_opt(request):
     return request.param
@@ -65,18 +65,23 @@ class TestRunLdScoreRegressions:
         ld_opt = TestRunLdScoreRegressions.PS_LD if ldc_opt == PRE_SPECIFIED else ldc_opt
         int_opt = TestRunLdScoreRegressions.PS_INT if intc_opt == PRE_SPECIFIED else intc_opt
         se2_opt = TestRunLdScoreRegressions.PS_SE2 if se2c_opt == PRE_SPECIFIED else se2c_opt
+        ld_scale = 0.7
 
         # Call the regression function
-        ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(betas, ses, ld_scores,
-            ld_fixed_opt=ld_opt, int_fixed_opt=int_opt, se_prod_fixed_opt=se2_opt)
+        f_opts = {mr.REG_LD_OPT_NAME : ld_opt,
+                      mr.REG_INT_OPT_NAME : int_opt,
+                      mr.REG_SE_OPT_NAME : se2_opt,
+                      mr.REG_LD_SCALE_FACTOR_NAME : ld_scale}
+        ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(betas, ses, ld_scores, **f_opts)
 
         # Check to make sure coefficient matrices satisfy the selected options
         if ldc_opt == PRE_SPECIFIED:
             assert np.allclose(ld_coef, ld_opt)
-        elif ldc_opt == mr.MAMA_REG_OPT_PERF_CORR:
+        elif ldc_opt == mr.MAMA_REG_OPT_SET_CORR:
             for i in range(1, 3):
-                for j in range(i, 3):
-                    assert np.isclose(ld_coef[i, j], np.sqrt(ld_coef[i, i] * ld_coef[j, j]))
+                for j in range(i+1, 3):
+                    assert np.isclose(ld_coef[i, j],
+                                      ld_scale * np.sqrt(ld_coef[i, i] * ld_coef[j, j]))
 
         if intc_opt == PRE_SPECIFIED:
             assert np.allclose(int_coef, int_opt)
@@ -149,3 +154,29 @@ class TestRunLdScoreRegressions:
         assert np.allclose(ld_coef, expected_ld_coef)
         assert np.allclose(int_coef, expected_int_coef)
         assert np.allclose(se2_coef, expected_se2_coef)
+
+   ########
+    @pytest.mark.parametrize("ld_scale_factor",
+                             [-1.0, -0.5, -0.3, 0.0, 0.3, 0.5, 1.0, None, None])
+    def test__3_pops_set_corr__expected_results(self, ld_scale_factor):
+
+        scale_factor = ld_scale_factor if ld_scale_factor else np.random.rand()
+
+        # Create betas, standard errors, and ld scores
+        betas = 100.0 * np.sqrt(TestRunLdScoreRegressions.PS_BASE) + 10.0
+        ses = 0.1 * TestRunLdScoreRegressions.PS_BASE + 0.05
+        ld_scores = np.array([1.00 * TestRunLdScoreRegressions.PS_BASE,
+                              1.10 * TestRunLdScoreRegressions.PS_BASE,
+                              1.15 * TestRunLdScoreRegressions.PS_BASE])
+
+        f_opts = {mr.REG_LD_OPT_NAME : mr.MAMA_REG_OPT_SET_CORR,
+                  mr.REG_INT_OPT_NAME : mr.MAMA_REG_OPT_ALL_FREE,
+                  mr.REG_SE_OPT_NAME : mr.MAMA_REG_OPT_ALL_FREE,
+                  mr.REG_LD_SCALE_FACTOR_NAME : scale_factor}
+        ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(betas, ses, ld_scores, **f_opts)
+
+
+        for i in range(1, 3):
+            for j in range(i+1, 3):
+                assert np.isclose(ld_coef[i, j],
+                                  scale_factor * np.sqrt(ld_coef[i, i] * ld_coef[j, j]))
