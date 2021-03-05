@@ -13,11 +13,16 @@ from util.reg import run_regression
 
 # Constants / Parameters / Types #############
 
+REG_LD_OPT_NAME = "ld_fixed_opt"
+REG_INT_OPT_NAME = "int_fixed_opt"
+REG_SE_OPT_NAME = "se_fixed_opt"
+REG_LD_SCALE_FACTOR_NAME = "ld_scale_factor"
+
 MAMA_REG_OPT_ALL_FREE = "all_unconstrained"
 MAMA_REG_OPT_ALL_ZERO = "all_zero"
 MAMA_REG_OPT_OFFDIAG_ZERO = "offdiag_zero"
 MAMA_REG_OPT_IDENT = "identity"
-MAMA_REG_OPT_PERF_CORR = "perfect_corr"
+MAMA_REG_OPT_SET_CORR = "set_corr"
 
 LD_SCORE_COEF = 0
 CONST_COEF = 1
@@ -56,8 +61,8 @@ def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> 
         result[d_indices] = np.NaN
     elif opt_str == MAMA_REG_OPT_IDENT:
         result = np.identity(num_pops)
-    elif opt_str == MAMA_REG_OPT_PERF_CORR:
-        # MAMA_REG_OPT_PERF_CORR must be handled elsewhere (a constant matrix does not suffice)
+    elif opt_str == MAMA_REG_OPT_SET_CORR:
+        # MAMA_REG_OPT_SET_CORR must be handled elsewhere (a constant matrix does not suffice)
         result = np.full((num_pops, num_pops), np.NaN)
     else:
         raise RuntimeError("Invalid type (%s) or value (%s) for opt_str" % (type(opt_str), opt_str))
@@ -87,9 +92,10 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
     P = harm_betas.shape[1]
 
     # Determine fixed options
-    ld_fixed_opt = kwargs.get('ld_fixed_opt', MAMA_REG_OPT_ALL_FREE)
-    int_fixed_opt = kwargs.get('int_fixed_opt', MAMA_REG_OPT_ALL_FREE)
-    se_prod_fixed_opt = kwargs.get('se_prod_fixed_opt', MAMA_REG_OPT_ALL_FREE)
+    ld_fixed_opt = kwargs.get(REG_LD_OPT_NAME, MAMA_REG_OPT_ALL_FREE)
+    int_fixed_opt = kwargs.get(REG_INT_OPT_NAME, MAMA_REG_OPT_ALL_FREE)
+    se_prod_fixed_opt = kwargs.get(REG_SE_OPT_NAME, MAMA_REG_OPT_ALL_FREE)
+    ld_corr_scale_factor = kwargs.get(REG_LD_SCALE_FACTOR_NAME, 1.0)
 
     # Allocate space for the regression matrix, order will be ld scores, constant, and se product
     # (will be partially overwritten at each iteration but no need to reallocate each time)
@@ -124,9 +130,15 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
 
     # Handle the case where MAMA_REG_OPT_PERF_CORR was set (if P == 1, though we can skip this)
     if P > 1 and not isinstance(ld_fixed_opt, np.ndarray) \
-             and ld_fixed_opt == MAMA_REG_OPT_PERF_CORR:
+             and ld_fixed_opt == MAMA_REG_OPT_SET_CORR:
+
+        # Calculate the sqrt(diagonal) and create the outer product multiplied by the scale factor
         ld_sqrt_diag = np.sqrt(np.diag(result_coefs[LD_SCORE_COEF, :, :]))
-        fixed_coefs[LD_SCORE_COEF] = np.outer(ld_sqrt_diag, ld_sqrt_diag)
+        fixed_coefs[LD_SCORE_COEF] = ld_corr_scale_factor * np.outer(ld_sqrt_diag, ld_sqrt_diag)
+
+        # Need to reset the diagonal elements (don't want the scale factor there)
+        np.fill_diagonal(fixed_coefs[LD_SCORE_COEF], np.diag(result_coefs[LD_SCORE_COEF, :, :]))
+
 
     # Calculate each off-diagonal element (and therefore its symmetric opposite, as well)
     for p1 in range(P):

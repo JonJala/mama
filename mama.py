@@ -21,7 +21,7 @@ from mama_pipeline import (MAMA_REQ_STD_COLS, MAMA_RE_EXPR_MAP, MAMA_STD_FILTERS
                            SNP_PALIN_FILT, DEFAULT_CHR_LIST, mama_pipeline, PopulationId,
                            write_sumstats_to_file)
 from reg_mama import (MAMA_REG_OPT_ALL_FREE, MAMA_REG_OPT_ALL_ZERO, MAMA_REG_OPT_OFFDIAG_ZERO,
-                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_PERF_CORR)
+                      MAMA_REG_OPT_IDENT, MAMA_REG_OPT_SET_CORR)
 from util.df import determine_column_mapping, Filter
 from util.sumstats import SNP_COL, create_chr_filter, create_freq_filter
 
@@ -61,8 +61,13 @@ SUMSTATS_MAP = "sumstats_map"
 REG_LD_COEF_OPT = "regression_ld_option"
 REG_SE2_COEF_OPT = "regression_se2_option"
 REG_INT_COEF_OPT = "regression_intercept_option"
+REG_LD_COEF_SCALE_COEF = "regression_ld_scale_factor"
 HARM_FILENAME_FSTR = "harmonized_sumstats_filename_format_str"
 REG_FILENAME_FSTR = "regression_coef_filename_format_str"
+
+# Correlation scaling factor min and max
+CORR_MIN_SCALING = -1.0
+CORR_MAX_SCALING = 1.0
 
 # Derived Constants###########################
 
@@ -214,6 +219,22 @@ def glob_path(s_input: str) -> List[str]:
     return [os.path.abspath(f) for f in file_path_list]
 
 
+def corr_coef(s_input: str) -> float:
+    """
+    Used for parsing some inputs to this program, namely input correlation coefficients
+
+    :param s_input: String passed in by argparse
+
+    :return: Float value of correlation coefficient
+    """
+
+    c = float(s_input)
+    if c < CORR_MIN_SCALING or c > CORR_MAX_SCALING:
+        raise ValueError("Value given for correlation coefficient (%s) must be between "
+                         "%s and %s." % (s_input, CORR_MIN_SCALING, CORR_MAX_SCALING))
+    return c
+
+
 #################################
 def get_mama_parser(progname: str) -> argp.ArgumentParser:
     """
@@ -267,7 +288,10 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "to disk.  This is useful for reference, but also in the case "
                               "where it is desired to edit the matrices and then pass back into "
                               "MAMA with the --reg-*-coef options below to enable more complex  "
-                              "constraints than are allowed for in the existing precanned options.")
+                              "constraints than are allowed for in the existing precanned "
+                              "options.  The mechanism used is Numpy's tofile() method with a "
+                              "tab separator (\\t) specified, which produces ASCII files with "
+                              "the elements of the matrices listed in row-major order.")
     out_opt.add_argument("--out-harmonized", action="store_true",
                          help="If specified, MAMA will output harmonized summary statistics "
                               "to disk.  This can be useful for reference and (potentially) "
@@ -315,15 +339,20 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     #   LD score coefficient options (subgroup)
     reg_ld_opt = reg_opt.add_mutually_exclusive_group()
     reg_ld_opt.add_argument("--reg-ld-coef", type=input_np_matrix, metavar="FILE",
-                            help="Optional argument indicating the file containing the regression "
-                                 "coefficients for the LD scores.  If this is specified, this will "
-                                 "override calculation of LD score coefficients.  "
+                            help="Optional argument indicating the ASCII file containing the "
+                                 "regression coefficients for the LD scores.  If this is "
+                                 "specified, this will override calculation of LD score "
+                                 "coefficients.  The mechanism used is Numpy's fromfile() method "
+                                 "with a tab separator (\\t) specified.  For a CxC matrix, the "
+                                 "file is C^2 numbers in row-major order separated by tabs.  "
                                  "This is mutually exclusive with other --reg-ld-* options")
-    reg_ld_opt.add_argument("--reg-ld-perf-corr", action="store_true",
+    reg_ld_opt.add_argument("--reg-ld-set-corr", type=corr_coef, metavar="CORR_COEF",
                             help="Optional argument indicating that off-diagonal elements in the "
                                  "LD score coefficients matrix should be set to be equal to the "
-                                 "square root of the product of the associated diagonal entries.  "
-                                 "This is mutually exclusive with other --reg-ld-* options")
+                                 "square root of the product of the associated diagonal entries  "
+                                 "multiplied by the given scaling factor in range [%s, %s].  "
+                                 "This is mutually exclusive with other --reg-ld-* options" %
+                                 (CORR_MIN_SCALING, CORR_MAX_SCALING))
     #   SE^2 coefficient options (subgroup)
     reg_se2_opt = reg_opt.add_mutually_exclusive_group()
     reg_se2_opt.add_argument("--reg-se2-coef", type=input_np_matrix, metavar="FILE",
@@ -560,11 +589,16 @@ def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any])
             raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
                                "(LD) but got %s." % (num_pops_sq, len(ld_coef_matrix)))
         internal_values[REG_LD_COEF_OPT] = ld_coef_matrix.reshape((num_pops, num_pops))
-    elif getattr(pargs, "reg_ld_perf_corr", None):
-        internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_PERF_CORR
+        internal_values[REG_LD_COEF_SCALE_COEF] = None
+    elif getattr(pargs, "reg_ld_set_corr", None):
+        internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_SET_CORR
+        internal_values[REG_LD_COEF_SCALE_COEF] = getattr(pargs, "reg_ld_set_corr")
     else:
         internal_values[REG_LD_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+        internal_values[REG_LD_COEF_SCALE_COEF] = None
     logging.debug("Regression coeffient option (LD) = %s", internal_values[REG_LD_COEF_OPT])
+    logging.debug("Regression coeffient option (LD Scale) = %s",
+                  internal_values[REG_LD_COEF_SCALE_COEF])
     #   2) Intercept coefs
     int_coef_matrix = getattr(pargs, "reg_int_coef", None)
     if int_coef_matrix is not None:
@@ -778,9 +812,9 @@ def main_func(argv: List[str]):
         result_sumstats = mama_pipeline(iargs[SUMSTATS_MAP], iargs['ld_scores'], iargs['snp_list'],
                                         iargs[COL_MAP], iargs[RE_MAP], iargs[FILTER_MAP],
                                         iargs[REG_LD_COEF_OPT], iargs[REG_SE2_COEF_OPT],
-                                        iargs[REG_INT_COEF_OPT], iargs['use_standardized_units'],
-                                        iargs[HARM_FILENAME_FSTR], iargs[REG_FILENAME_FSTR],
-                                        iargs['input_sep'])
+                                        iargs[REG_INT_COEF_OPT], iargs[REG_LD_COEF_SCALE_COEF],
+                                        iargs['use_standardized_units'], iargs[HARM_FILENAME_FSTR],
+                                        iargs[REG_FILENAME_FSTR], iargs['input_sep'])
 
         # Write out the summary statistics to disk
         logging.info("Writing results to disk.")

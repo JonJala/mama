@@ -14,7 +14,8 @@ from scipy.stats import norm
 
 from core_mama import (create_omega_matrix, create_sigma_matrix, run_mama_method, qc_omega,
                        qc_sigma)
-from reg_mama import (MAMA_REG_OPT_ALL_FREE, run_ldscore_regressions)
+from reg_mama import (REG_INT_OPT_NAME, REG_LD_OPT_NAME, REG_LD_SCALE_FACTOR_NAME, REG_SE_OPT_NAME,
+                      MAMA_REG_OPT_ALL_FREE, run_ldscore_regressions)
 from util.df import Filter, intersect_indices
 from util.sumstats import (SNP_COL, BP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL,
                            A2_COL, P_COL, INFO_COL, N_COL, Z_COL, COMPLEMENT, BASES,
@@ -348,6 +349,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
                   ld_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   se_prod_opt: Any = MAMA_REG_OPT_ALL_FREE,
                   int_opt: Any = MAMA_REG_OPT_ALL_FREE,
+                  ld_corr_scale_factor = 1.0,
                   std_units: bool = False,
                   harmonized_file_fstr: str = "",
                   reg_coef_fstr: str = "",
@@ -431,10 +433,13 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # Run LD score regressions
     logging.info("\n\nRunning LD Score regression.")
-    ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr, ldscore_arr,
-                                                            ld_fixed_opt=ld_opt,
-                                                            se_prod_fixed_opt=se_prod_opt,
-                                                            int_fixed_opt=int_opt)
+    fixed_opts = {REG_LD_OPT_NAME : ld_opt,
+                  REG_SE_OPT_NAME : se_prod_opt,
+                  REG_INT_OPT_NAME : int_opt,
+                  REG_LD_SCALE_FACTOR_NAME : ld_corr_scale_factor}
+    logging.debug("\tOptions = %s", fixed_opts)
+    ld_coef, const_coef, se2_coef = run_ldscore_regressions(beta_arr, se_arr,
+                                                            ldscore_arr, **fixed_opts)
 
     # Log coefficients at debug level (and write coefficients to disk if option is selected)
     logging.info("Regression coefficients (LD):\n%s", ld_coef)
