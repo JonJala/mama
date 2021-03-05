@@ -288,7 +288,10 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                               "to disk.  This is useful for reference, but also in the case "
                               "where it is desired to edit the matrices and then pass back into "
                               "MAMA with the --reg-*-coef options below to enable more complex  "
-                              "constraints than are allowed for in the existing precanned options.")
+                              "constraints than are allowed for in the existing precanned "
+                              "options.  The mechanism used is Numpy's tofile() method with a "
+                              "tab separator (\\t) specified, which produces ASCII files with "
+                              "the elements of the matrices listed in row-major order.")
     out_opt.add_argument("--out-harmonized", action="store_true",
                          help="If specified, MAMA will output harmonized summary statistics "
                               "to disk.  This can be useful for reference and (potentially) "
@@ -336,9 +339,12 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     #   LD score coefficient options (subgroup)
     reg_ld_opt = reg_opt.add_mutually_exclusive_group()
     reg_ld_opt.add_argument("--reg-ld-coef", type=input_np_matrix, metavar="FILE",
-                            help="Optional argument indicating the file containing the regression "
-                                 "coefficients for the LD scores.  If this is specified, this will "
-                                 "override calculation of LD score coefficients.  "
+                            help="Optional argument indicating the ASCII file containing the "
+                                 "regression coefficients for the LD scores.  If this is "
+                                 "specified, this will override calculation of LD score "
+                                 "coefficients.  The mechanism used is Numpy's fromfile() method "
+                                 "with a tab separator (\\t) specified.  For a CxC matrix, the "
+                                 "file is C^2 numbers in row-major order separated by tabs.  "
                                  "This is mutually exclusive with other --reg-ld-* options")
     reg_ld_opt.add_argument("--reg-ld-set-corr", type=corr_coef, metavar="CORR_COEF",
                             help="Optional argument indicating that off-diagonal elements in the "
