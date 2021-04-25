@@ -1,3 +1,3 @@
-# mama2
+# mama
 
-TODO(jonbjala)
+Coming soon (work in progress)
