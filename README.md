@@ -1,5 +1,6 @@
 # `mama`
-[`mama`](https://www.biorxiv.org/content/10.1101/2021.04.23.441003v1) is a Python-based command line tool that meta-analyzes GWAS summary statistics generated from distinct ancestry groups. For more detials please see Turley et al. (2021) and [Turley et al. (2018)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5805593/).
+[`mama`](https://www.biorxiv.org/content/10.1101/2021.04.23.441003v1) is a Python-based command line tool that meta-analyzes GWAS summary statistics generated from distinct ancestry groups. For more details please see Turley et al. (2021) and [Turley et al. (2018)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5805593/).
+
 
 ### Getting started
 You can clone the repository with 
