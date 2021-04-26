@@ -36,4 +36,4 @@ You may also contact us via email, although we encourage github issues so others
 
 ### Citation
 
-If you are using the `mama` method or software, please cite Turley et al. (2021).
+If you are using the `mama` method or software, please cite Turley, Patrick et al. "Multi-Ancestry Meta-Analysis yields novel genetic discoveries and ancestry-specific associations". *bioRxiv*. (2021).
