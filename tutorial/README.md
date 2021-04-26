@@ -80,11 +80,13 @@ Some columns (INFO score, sample size) can be optionally specified. For more det
 
 In the within-ancestry case, `mama` estimates the coefficients of the following equation:
 
-$\hat{\beta}^2_{p,j} = \gamma_{\ell, pp}\ell_{pp,j} + \gamma_{f,pp} + \gamma_{\xi,p}S_{p,j}$
+<img src="https://latex.codecogs.com/svg.image?\hat{\beta}^2_{p,j}&space;=&space;\gamma_{\ell,&space;pp}\ell_{pp,j}&space;&plus;&space;\gamma_{f,pp}&space;&plus;&space;\gamma_{\xi,p}S_{p,j}" title="\hat{\beta}^2_{p,j} = \gamma_{\ell, pp}\ell_{pp,j} + \gamma_{f,pp} + \gamma_{\xi,p}S_{p,j}" />
+
 
 In the cross-ancestry case, `mama` estimates the coefficients of the following equation:
 
-$\hat{\beta}_{p,j}\hat{\beta}_{q,j} = \gamma_{\ell,pq}\ell_{pq,j} + \gamma_{f,pq}$
+<img src="https://latex.codecogs.com/svg.image?\hat{\beta}{p,j}\hat{\beta}{q,j}&space;=&space;\gamma_{\ell,pq}\ell_{pq,j}&space;&plus;&space;\gamma_{f,pq}" title="\hat{\beta}{p,j}\hat{\beta}{q,j} = \gamma_{\ell,pq}\ell_{pq,j} + \gamma_{f,pq}" />
+
 
 See the Supplementary Note for more details. Some aspects of this specifiction can be modified from the command line. Commands to modify the coefficients on the LD scores begin with `--reg-ld-XXX`. Commands to modify the coefficients on the standard errors begin with `--reg-se2-XXX`. Commands to modify the coefficients on the intercept begin with `--reg-ld-XXX`. For example, in the paper, we set the genetic correlation between ancestries to 1 by calling `--reg-ld-set-corr 1`. Because the standard errors across SNPs will oftentimes be approximately colinear with the intercept, we recommend setting either the standard error coefficient or the intercept to 0. In the paper, we set the  intercept to zero with `--reg-int-zero`. Note that the regressions can be estimated in standardized gentoype units with `--use-standardized-units` (input and output will always be in allele counts, but the meta-analysis itself can be done in standardized genotype units.)
 
