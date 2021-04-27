@@ -10,7 +10,7 @@ $ cd mama
 ```
 The easiest way to ensure your libraries will be compatible with the dependencies in the software is to instantiate a virtual environment with [`virtualenv`](https://virtualenv.pypa.io/en/latest/). Once `virtualenv` is installed on your machine, you can type the following:
 ```
-$ virtualenv -p $(which python3) mama_env
+$ virtualenv mama_env
 $ source mama_env/bin/activate 
 $ pip install -r /path/to/mama/requirements.txt
 ```
