@@ -18,9 +18,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.mama as mama
-import mama2.mama_pipeline as mp
-import mama2.util.sumstats as ss
+import mama.mama as mama
+import mama.mama_pipeline as mp
+import mama.util.sumstats as ss
 
 
 test_directory = os.path.dirname(__file__)

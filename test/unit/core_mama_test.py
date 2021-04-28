@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.core_mama as core_mama
+import mama.core_mama as core_mama
 
 
 M_VALUES = [1, 3, 500]

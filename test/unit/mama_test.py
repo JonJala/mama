@@ -13,7 +13,7 @@ import tempfile
 
 import pytest
 
-import mama2.mama as mama
+import mama.mama as mama
 
 
 @pytest.fixture(scope="module")

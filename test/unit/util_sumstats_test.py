@@ -15,7 +15,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.util.sumstats as ss
+import mama.util.sumstats as ss
 
 
 ###########################################
