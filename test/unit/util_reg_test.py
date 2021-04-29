@@ -15,7 +15,7 @@ import tempfile
 import numpy as np
 import pytest
 
-import mama2.util.reg as reg
+import mama.util.reg as reg
 
 
 N_VAR_VALUES = [3, 4, 10]  # Some tests rely on these numbers being >= 2

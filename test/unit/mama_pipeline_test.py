@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.mama_pipeline as mp
-import mama2.util.sumstats as ss
+import mama.mama_pipeline as mp
+import mama.util.sumstats as ss
 
 @pytest.fixture(scope="function", params=[1, 2, 3, 10])
 def collate_df_values_test_df(request):

@@ -12,7 +12,7 @@ sys.path.append(main_directory)
 import numpy as np
 import pytest
 
-import mama2.reg_mama as reg_mama
+import mama.reg_mama as reg_mama
 
 
 ###########################################

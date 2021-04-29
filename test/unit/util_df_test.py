@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.util.df as df_util
+import mama.util.df as df_util
 
 
 _FILTER_TEST_DATAFRAME_LENGTHS = [2, 3, 6, 10, 50]

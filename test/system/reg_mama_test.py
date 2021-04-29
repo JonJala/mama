@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import mama2.mama_pipeline as mp
-import mama2.reg_mama as mr
-import mama2.util.sumstats as ss
+import mama.mama_pipeline as mp
+import mama.reg_mama as mr
+import mama.util.sumstats as ss
 
 
 PRE_SPECIFIED = "prespec"
