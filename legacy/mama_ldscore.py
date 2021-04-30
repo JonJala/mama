@@ -38,11 +38,8 @@ import subprocess
 import copy
 import argparse
 
-# these imports don't work as written
-# from legacy import mama_ldcalc as ld
-# from legacy import mama_parse as ps
-import mama_ldcalc as ld
-import mama_parse as ps
+import legacy.mama_ldcalc as ld
+import legacy.mama_parse as ps
 
 __version__ = '1.0.0'
 
