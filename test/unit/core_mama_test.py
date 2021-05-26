@@ -178,65 +178,31 @@ class TestCreateOmegaMatrix:
 
 
 ###########################################
+# TODO(jonbjala) Complete this test
+# OMEGA_1 = np.array([2.0, 4.0, 6.0, 8.0, 10.0])[:, np.newaxis, np.newaxis] * \
+#     np.full((5, 3, 3), [[1.0, 2.0, 3.0], [2.0, 4.0, 5.0], [3.0, 5.0, 6.0]])
+# SIGMA_1 = np.array([1.0, 3.0, 5.0, 7.0, 9.0])[:, np.newaxis, np.newaxis] * \
+#     np.full((5, 3, 3), [[1.0, 4.0, 9.0], [4.0, 16.0, 25.0], [9.0, 25.0, 36.0]])
+# BETAS_1 = np.repeat(np.array([[1.0, 2.0, 3.0, 4.0, 5.0]]), 3, axis=0).T
+# EXPECTED_BETAS_1 = np.array([0])
+# EXPECTED_SES_1 = np.array([0])
 
-class TestRunMamaMethod:
+# class TestRunMamaMethod:
 
-    # TODO(jonbjala) Test this!!
-    #########
-    @pytest.mark.parametrize("M, P", itertools.product(M_VALUES, P_VALUES))
-    def test__omega_with_some_negative_or_zero_diag__drop_corresponding_snps(self, M, P):
-        assert True
+#     #########
+#     @pytest.mark.parametrize("omega, sigma, betas, exp_betas, exp_ses",
+#         [
+#             (OMEGA_1, SIGMA_1, BETAS_1, EXPECTED_BETAS_1, EXPECTED_SES_1)
+#         ]
+#     )
 
+#     def test__happy_path_precanned_data__expected_results(self, omega, sigma, betas,
+#                                                           exp_betas, exp_ses):
+#         actual_betas, actual_ses = core_mama.run_mama_method(betas, omega, sigma)
 
-    #########
-    @pytest.mark.parametrize("M, P", itertools.product(M_VALUES, P_VALUES))
-    def test__happy_path_precanned_data__expected_results(self, M, P):
-        assert True
-
-    # def test_1(self):
-
-    #     omega = np.ones((2,3,3)) # 2 SNPs, 3 populations
-    #     sigma = np.zeros((2,3,3)) # 2 SNPs, 3 populations
-    #     sigma[0] = np.identity(3)
-    #     sigma[1] = np.identity(3)
-    #     betas = np.array([[0, 1, 2], [-1, 0, 1]])
-    #     mama2.run_mama_method(betas, omega, sigma)
-    #     assert True
-
-    # def test_2(self):
-
-    #     omega = np.array([[[2.0, np.sqrt(2)], [np.sqrt(2), 1]]]) # 1 SNPs, 2 populations
-    #     sigma = np.array([[[4, 0], [0, 1]]]) # 1 SNPs, 2 populations
-    #     betas = np.array([[2, 1]])
-    #     mama2.run_mama_method(betas, omega, sigma)
-    #     assert True
-
-
-    # def test_3(self):
-    #     M = 3
-    #     P = 4
-    #     d_indices = np.arange(P)
-
-    #     omega = np.zeros((M, P, P))
-    #     sigma = np.zeros((M, P, P))
-
-    #     rand_mat_1 = np.random.rand(M, P)
-    #     rand_mat_2 = np.random.rand(M, P)
-
-    #     omega[:, d_indices, d_indices] = np.random.rand(M, P)
-    #     sigma[:, d_indices, d_indices] = np.random.rand(M, P)
-
-    #     betas = np.ones((M,P))
-    #     mama2.run_mama_method(betas, omega, sigma)
-    #     assert True
-
-    # def test_4(self):
-    #     # 4 SNPs, 2 populations
-    #     betas = np.array([[1,2], [3,4], [5,6], [7,8]])
-    #     ses = np.array([[1,-1], [-2,2], [4,0], [0.5, 1]])
-    #     ldscores = np.array([[1,-1], [-2,2], [4,0], [1,1]])
-    #     mama2.run_ldscore_regressions(betas, ses, ldscores)
-    #     assert False
+#         np.allclose(actual_betas, exp_betas)
+#         np.allclose(actual_ses, exp_ses)
+#         assert False
 
 
 ###########################################
@@ -253,11 +219,13 @@ class TestQcSigma:
             (
                 [[[2, -1, 0], [-1, 2, -1], [0, -1, 2]],
                  [[-2, -1, 0], [-1, -2, -1], [0, -1, -2]],
-                 [[1, 0, 0], [0, 1, 0], [0, 0, 1]]],
-                [True, False, True]
+                 [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+                 [[0, 0, 0], [0, 0, 0], [0, 0, 0]],
+                 [[-1, 0, 0], [0, -1, 0], [0, 0, -1]],
+                 [[2, 0, 0], [0, 2, 0], [0, 0, 2]]],
+                [True, False, True, False, False, True]
             )
         ])
-    # TODO(jonbjala) Add a few more cases?
     def test__varying_sigma_slices__return_expected(self, sigma, expected):
         sigma_arr = np.array(sigma)
         expected_arr = np.array(expected)
@@ -283,12 +251,12 @@ class TestQcOmega:
                 [[[2, -1, 0], [-1, 2, -1], [0, -1, 2]],
                  [[-2, -1, 0], [-1, -2, -1], [0, -1, -2]],
                  [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-                 [[2, 2, 2], [2, 1, 3], [2, 3, 2]]],
-                [True, False, True, True],
-                [False, False, False, True]
+                 [[2, 2, 2], [2, 1, 3], [2, 3, 2]],
+                 [[0, 0, 0], [0, 0, 0], [0, 0, 0]]],
+                [True, False, True, True, True],
+                [False, False, False, True, False]
             )
         ])
-    # TODO(jonbjala) Add a few more cases?
     def test__varying_omega_slices__return_expected(self, omega, exp_psd, exp_tweaks):
         omega_arr = np.array(omega)
         expected_pos_semi_def_arr = np.array(exp_psd)
@@ -309,7 +277,7 @@ class TestTweakOmega:
         [
             [[2, 2, 2], [2, 1, 3], [2, 3, 2]]
         ])
-    # TODO(jonbjala) Add timeout to this test?  Also, add more test cases / parameters
+    @pytest.mark.timeout(10) # Limit to 10 seconds
     def test__varying_omega__return_expected(self, omega):
         omega_matrix = np.array(omega)
         result = core_mama.tweak_omega(omega_matrix)
