@@ -166,9 +166,9 @@ def run_mama_method(betas, omega, sigma):
     """
     Runs the core MAMA method to combine results and generate final, combined summary statistics
 
-    :param harm_sumstats: TODO(jonbjala)
-    :param omega: TODO(jonbjala)
-    :param sigma: TODO(jonbjala)
+    :param betas: MxP matrix of beta values (M = # of SNPs, P = # of ancestries)
+    :param omega: MxPxP matrix of omega values (M = # of SNPs, P = # of ancestries)
+    :param sigma: MxPxP matrix of sigma values (M = # of SNPs, P = # of ancestries)
 
     :return: Tuple containing:
                  1) Result ndarray of betas (MxP) where M = SNPs and P = populations
@@ -176,8 +176,7 @@ def run_mama_method(betas, omega, sigma):
     """
 
     # Get values for M and P (used to keep track of slices / indices / broadcasting)
-    M = omega.shape[0]
-    P = omega.shape[1]
+    M, P, *extra_dimensions = omega.shape
 
     # Create a 3D matrix, M rows of Px1 column vectors with shape (M, P, 1)
     d_indices = np.arange(P)
@@ -204,11 +203,9 @@ def run_mama_method(betas, omega, sigma):
     denom_recip_view.shape = (M, P)
 
     # Calculate numerator (M x P x 1 x 1))
-    left_product_view = left_product.view()
-    left_product_view.shape = (M, P, P)
+    left_product_view = left_product.view().reshape(M, P, P)
     numer = np.matmul(left_product_view, betas[:, :, np.newaxis])
-    numer_view = numer.view()
-    numer_view.shape = (M, P)
+    numer_view = numer.view().reshape(M, P)
 
     # Calculate result betas and standard errors
     new_betas = denom_recip_view * numer_view

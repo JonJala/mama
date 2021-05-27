@@ -49,13 +49,6 @@ class TestProcessSumstats:
         assert all(df[res_col].str.contains("Keep"))
 
 
-    def test__various_file_seps__same_results(self):
-        """
-        TODO(jonbjala)
-        """
-        pass
-
-
     def test__alt_filters__expected_results(self):
         """
         TODO(jonbjala)
