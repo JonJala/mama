@@ -802,6 +802,14 @@ def main_func(argv: List[str]):
     np.seterr(all='call')
     np.seterrcall(numpy_err_handler)
 
+    # Attempt to print package version info (pandas has a nice version info summary)
+    logging.debug("Printing Pandas' version summary:")
+    try:
+        logging.debug("\n%s", pd.show_versions())
+    except Exception as exc:  # pylint: disable=broad-except
+        logging.exception(exc)
+    logging.debug("\n")
+
     # Execute the rest of the program, but catch and log exceptions before failing
     try:
 
