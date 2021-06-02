@@ -3,7 +3,7 @@
 This brief, self-contained tutorial will walk the user through an end-to-end run of `mama`. We encourage new users to consult this document prior to using the package on their own data. We provide individual-level data of 10 people from 1000 Genomes (5 from EUR sample, 5 from EAS sample) and ~800 randomly selected
 SNPs on chromosome 22. We also give a sample EAS GWAS of BMI (CKB + BBJ) and EUR GWAS of BMI (UKB) restricted to chromosome 22.
 
-Note: Due to the low number of SNPs in the LDSC reference panel, the MAMA output of this tutorial will be very sparse -- only 45 SNPs after QC and restricting
+Note: Due to the low number of SNPs in the LDSC reference panel, the MAMA output of this tutorial will be very sparse -- approximately 50 SNPs after QC and restricting
 to SNPs in the intersection of the GWAS's and reference panel. When working outside of this tutorial, we obviously recommend a much larger set of SNPs to be included.
 
 ## MAMA LDSC
