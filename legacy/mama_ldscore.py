@@ -187,7 +187,6 @@ def pair_ldScoreVarBlocks(args, t, j, ances_ind, eff_ances_flag, ances_n, c_size
     A/B represent genotype blocks, B is nested in A
 
     '''
-
     m = block_left.shape[0]
     if t==j:
         n = ances_n[t]
@@ -437,6 +436,8 @@ def estimate_LD_score_MAMA(args):
     logging.info('Read list of {n} individuals from {f}'.format(n=n, f=ind_file))
 
     # clean the ancestry file
+    array_indivs.IDList["IID"] = array_indivs.IDList["IID"].astype(str)
+    df_ances.IID = df_ances.IID.astype(str)
     ances_flag = array_indivs.IDList.merge(df_ances, how='inner', on='IID')
 
     if len(array_indivs.IDList['IID']) > len(ances_flag):

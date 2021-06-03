@@ -50,6 +50,10 @@ data to non-duplicated rsID's prior to running `mama_ldscores.py`.
 
 Once the above two files have been created, you can now merge your genotype `.bed/.bim/.fam` files together across ancestries. This will be necessary as `mama_ldscores` only accepts a single genotype fileset (note: if you're storing your data at the chromosome-level, you can simply loop through each chromosome and call the script 22 times.) One will need to merge multiple Plink filesets together with [`--[b]merge`](https://www.cog-genomics.org/plink/1.9/data#merge).
 
+### `--ld-wind-*`
+
+The user is encouraged to specify a window size to calculate LD in using one (and only one) of the `--ld-wind*` flags. A window of one centimorgan is common and can be specified with `--ld-wind-cm 1`. However, not all genotype data will contain centimorgan positions (the third column of the `.bim` file will be all zeros). Specifying a centimorgan-based window will cause runtime issues and may produce incorrect results if no centimorgan data is provided. In these instances, the user can approximate a centimorgan with 1,000 kb using `--wind-ld-kb 1000`, or, if appropriate, specify a number of SNPs to use with `--ld-wind-snps`. 
+
 ### Running `mama_ldscores`
 
 The script `./run_mama_ldscores.sh` provides an example of how to call `mama_ldscores.py`. Note that there are flags this script does not invoke. To see all the options, type `python3 mama_ldscores.py -h`.
