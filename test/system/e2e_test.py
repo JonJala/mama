@@ -90,6 +90,14 @@ class TestEndToEnd:
         assert "Number of SNPS in initial intersection of all sources: 32" in logtext
         assert "Number of SNPS in initial intersection of all sources: 32" in sout
 
+        assert "Writing harmonized summary statistics to disk" in logtext
+        assert "Writing harmonized summary statistics to disk" in sout
+
+        assert "Harmonized POP1 PHENO1 mean chi squared:" not in logtext
+        assert "Harmonized POP1 PHENO1 mean chi squared:" not in sout
+        assert "Harmonized POP2 PHENO1 mean chi squared:" not in logtext
+        assert "Harmonized POP2 PHENO1 mean chi squared:" not in sout
+
         assert "SNPs to make omega positive semi-definite" in logtext
         assert "SNPs to make omega positive semi-definite" in sout
 
@@ -208,6 +216,12 @@ class TestEndToEnd:
 
         assert "Number of SNPS in initial intersection of all sources: 32" in logtext
         assert "Number of SNPS in initial intersection of all sources: 32" in sout
+
+        assert "Writing harmonized summary statistics to disk" in logtext
+        assert "Writing harmonized summary statistics to disk" in sout
+
+        assert "Harmonized POP1 PHENO1 mean chi squared:" not in logtext
+        assert "Harmonized POP1 PHENO1 mean chi squared:" not in sout
 
         assert "SNPs to make omega positive semi-definite" not in logtext
         assert "SNPs to make omega positive semi-definite" not in sout

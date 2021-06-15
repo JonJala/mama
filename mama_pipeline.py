@@ -301,6 +301,33 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
 
 
 #################################
+def calculate_z(betas: np.ndarray, ses: np.ndarray) -> np.ndarray:
+    """
+    Function that calculates Z scores from betas and standard errors.  Shape
+    of betas and ses must be the same / broadcastable.
+
+    :param pop: Array of beta values
+    :param ses: Array of standard errors
+
+    :return: The array of Z scores
+    """
+    return np.divide(betas, ses)
+
+
+#################################
+def calculate_mean_chi_sq(z_scores: np.ndarray) -> float:
+    """
+    Function that calculates a mean chi squared statistic from
+    Z scores
+
+    :param z_scores: Array of Z scores
+
+    :return: The mean chi squared statistic
+    """
+    return np.square(z_scores).mean()
+
+
+#################################
 def calculate_n_eff(pop: int, n_orig: np.ndarray, sigma: np.ndarray, ses: np.ndarray) -> np.ndarray:
     """
     Function that calculates effective N
@@ -330,7 +357,9 @@ def calculate_p(z_scores: np.array) -> np.array:
     log_10_p = RECIP_LN_10 * (norm.logcdf(-np.abs(z_scores)) + LN_2)
 
     # Break up the log based 10 of P values into the integer and fractional part
-    frac_part, int_part = np.modf(log_10_p)
+    # To handle the case of Z = 0 (and not result in "10e-1"), set initial values to (-1.0, 1.0)
+    frac_part, int_part = np.full_like(z_scores, -1.0), np.full_like(z_scores, 1.0)
+    np.modf(log_10_p, out=(frac_part, int_part), where=(z_scores != 0.0))
 
     # Construct strings for the P values
     # 1) Add one to the fractional part to ensure that the result mantissa is between 1 and 10
@@ -385,7 +414,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         re_expr_map = MAMA_RE_EXPR_MAP.copy()
 
     # Check / read in LD scores and then QC
-    logging.info("\n\nReading in and running QC on LD Scores")
+    logging.info("\n\nReading in and running QC on LD Scores\n")
     logging.debug("\nList of files: %s", ldscore_list)
     ldscores = pd.concat((obtain_df(f, "LD Scores", sep) for f in ldscore_list), ignore_index=True)
     ldscores = qc_ldscores(ldscores)
@@ -419,6 +448,16 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
             filename = harmonized_file_fstr % (ancestry, phenotype)
             logging.debug("\t%s", filename)
             write_sumstats_to_file(filename, harm_ss_df)
+
+    # Log mean chi squared statistics for each population if needed
+    if logging.root.level <= logging.DEBUG:
+        logging.debug("\n")
+        for (ancestry, phenotype), harm_ss_df in sumstats.items():
+            mean_chi_sq = calculate_mean_chi_sq(calculate_z(harm_ss_df[BETA_COL].to_numpy(),
+                                                            harm_ss_df[SE_COL].to_numpy()))
+            logging.debug("Harmonized %s %s mean chi squared: %s",
+                ancestry, phenotype, mean_chi_sq)
+        logging.debug("\n")
 
     # If using a standardized units model, convert to stdized units here (convert back later)
     if std_units:
@@ -525,7 +564,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         new_df_data_list.append((SE_COL, new_beta_ses[:, pop_num]))
 
         # Calculate Z score
-        z_scores = np.divide(new_betas[:, pop_num], new_beta_ses[:, pop_num])
+        z_scores = calculate_z(new_betas[:, pop_num], new_beta_ses[:, pop_num])
         new_df_data_list.append((Z_COL, z_scores))
 
         # Calculate P column
@@ -549,7 +588,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
         sumstats[(ancestry, phenotype)] = new_df
 
         # Report mean chi squared
-        mean_chi_2 = np.square(new_df[Z_COL].to_numpy()).mean()
+        mean_chi_2 = calculate_mean_chi_sq(new_df[Z_COL].to_numpy())
         logging.info("\t\tMean Chi^2 for %s = %s", (ancestry, phenotype), mean_chi_2)
 
         # If using a standardized units model, convert back from stdized units here

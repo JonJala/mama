@@ -124,10 +124,44 @@ class TestCollateDfValues:
 
 ###########################################
 
+class TestCalculateZ:
+
+    #########
+    @pytest.mark.parametrize("beta, se, expected",
+        [
+            (np.array([10.0, 10.0, 10.0]), np.array([1.0, 2.0, 5.0]), np.array([10.0, 5.0, 2.0])),
+            (np.array([-10.0, -10.0]), np.array([10.0, 1.0]), np.array([-1.0, -10.0])),
+            (np.array([0.0]), np.array([1.0]), np.array([0.0]))
+        ])
+    def test__varying_inputs__return_expected(self, beta, se, expected):
+        assert np.allclose(mp.calculate_z(beta, se), expected)
+
+
+###########################################
+
+class TestCalculateMeanChiSquared:
+
+    #########
+    @pytest.mark.parametrize("z_scores, expected",
+        [
+            (np.array([0.0, 0.0, 0.0]), 0.0),
+            (np.array([0.0, 1.0, 0.0, 0.0]), 0.25),
+            (np.array([0.0, 1.0]), 0.5),
+            (np.array([1.0] * 100), 1.0),
+            (np.array([2.0] * 50), 4.0),
+            (np.array([0.0, 1.0, 2.0, 3.0, 4.0]), 6.0),
+            (np.array([0.0, -1.0, -2.0, -3.0, -4.0]), 6.0),
+            (np.array([0.0, -1.0, 2.0, 3.0, -4.0]), 6.0)
+        ])
+    def test__varying_inputs__return_expected(self, z_scores, expected):
+        assert np.allclose(mp.calculate_mean_chi_sq(z_scores), expected)
+
+
+###########################################
+
 class TestCalculateNEff:
 
     #########
-    # TODO(jonbjala) Need a few more cases
     @pytest.mark.parametrize("pop_num, n_orig, sigma, se, expected",
         [
             (0, np.array([100, 1000, 5000]), np.full((3, 2, 2), 0.5 * np.identity(2)),
@@ -142,16 +176,16 @@ class TestCalculateNEff:
 class TestCalculateP:
 
     #########
-    # TODO(jonbjala) Need a few more cases
-    @pytest.mark.parametrize("z, expected_p_str",
+    @pytest.mark.parametrize("z_scores, expected_p_str",
         [
             (1.0, "3.1731e-1"),
+            (-1.0, "3.1731e-1"),
             (1.96, "5.0e-2")
         ])
-    def test__varying_single_inputs__return_expected(self, z, expected_p_str):
+    def test__varying_single_inputs__return_expected(self, z_scores, expected_p_str):
 
         # Call the function
-        result_p_str = mp.calculate_p(np.array(z))
+        result_p_str = mp.calculate_p(np.array(z_scores))
 
         # Check the mantissa and exponents separately
         #     1) Split the result and expected strings into mantissas and exponents
@@ -163,20 +197,20 @@ class TestCalculateP:
         expected_e = int(expected_split[1])
         actual_e = int(actual_split[1])
         #     3) Assert relationships (mantissas should be close, exponents should be exactly equal)
-        assert np.isclose(expected_m, actual_m, rtol=0.001, atol=0.001)
+        assert np.isclose(expected_m, actual_m, rtol=0.005, atol=0.005)
         assert expected_e == actual_e
 
     #########
-    # TODO(jonbjala) Need a few more cases
-    @pytest.mark.parametrize("z, expected_p_str",
+    @pytest.mark.parametrize("z_scores, expected_p_str",
         [
             ([1.0], ["3.1731e-1"]),
-            ([1.0, 1.0], ["3.1731e-1", "3.1731e-1"])
+            ([1.0, 1.0], ["3.1731e-1", "3.1731e-1"]),
+            ([0.0, -1.0], ["1.0e0", "3.1731e-1"])
         ])
-    def test__varying_list_inputs__return_expected(self, z, expected_p_str):
+    def test__varying_list_inputs__return_expected(self, z_scores, expected_p_str):
 
         # Call the function
-        result_p_str = mp.calculate_p(np.array(z))
+        result_p_str = mp.calculate_p(np.array(z_scores))
 
         # Check the mantissa and exponents separately
         #     1) Split the result and expected strings into mantissas and exponents
@@ -188,5 +222,5 @@ class TestCalculateP:
         expected_e = np.array([int(expected[1]) for expected in expected_splits.tolist()])
         actual_e = np.array([int(actual[1]) for actual in actual_splits.tolist()])
         #     3) Assert relationships (mantissas should be close, exponents should be exactly equal)
-        assert np.allclose(expected_m, actual_m, rtol=0.001, atol=0.001)
+        assert np.allclose(expected_m, actual_m, rtol=0.005, atol=0.005)
         assert np.array_equal(expected_e, actual_e)
