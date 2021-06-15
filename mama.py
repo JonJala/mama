@@ -5,7 +5,9 @@ Python tool for multi-ancestry, multi-trait analysis
 """
 
 import argparse as argp
+import contextlib
 import glob
+import io
 import itertools
 import logging
 import os
@@ -126,7 +128,7 @@ def reg_ex(s_input: str) -> str:
         re.compile(stripped_regex)
     except re.error as exc:
         raise RuntimeError("Invalid regular expression \"%s\" supplied: %s" %
-                           (stripped_regex, exc))
+                           (stripped_regex, exc)) from exc
 
     return stripped_regex
 
@@ -186,8 +188,9 @@ def ss_input_tuple(s_input: str) -> Tuple[str, str, str]:
     """
     try:
         ss_file, ancestry, phenotype = map(lambda x: x.strip(), s_input.split(INPUT_TRIPLE_SEP))
-    except:
-        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" % s_input)
+    except Exception as exc:
+        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" %
+                           s_input) from exc
 
     return input_file(ss_file), ancestry.strip(), phenotype.strip()
 
@@ -712,7 +715,7 @@ def construct_ss_and_col_maps(pargs: argp.Namespace, re_map: Dict[str, str])\
             col_map[(anc, phen)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
         except RuntimeError as exc:
             raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
-                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, exc))
+                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, exc)) from exc
 
     return col_map, ss_map
 
@@ -803,12 +806,11 @@ def main_func(argv: List[str]):
     np.seterrcall(numpy_err_handler)
 
     # Attempt to print package version info (pandas has a nice version info summary)
-    logging.debug("Printing Pandas' version summary:")
-    try:
-        logging.debug("\n%s", pd.show_versions())
-    except Exception as exc:  # pylint: disable=broad-except
-        logging.exception(exc)
-    logging.debug("\n")
+    if logging.root.level <= logging.DEBUG:
+        logging.debug("Printing Pandas' version summary:")
+        with contextlib.redirect_stdout(io.StringIO()) as f:
+            pd.show_versions()
+        logging.debug("%s\n", f.getvalue())
 
     # Execute the rest of the program, but catch and log exceptions before failing
     try:

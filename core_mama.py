@@ -176,7 +176,7 @@ def run_mama_method(betas, omega, sigma):
     """
 
     # Get values for M and P (used to keep track of slices / indices / broadcasting)
-    M, P, *extra_dimensions = omega.shape
+    M, P, *extra_dimensions = omega.shape  # pylint: disable=unused-variable
 
     # Create a 3D matrix, M rows of Px1 column vectors with shape (M, P, 1)
     d_indices = np.arange(P)

@@ -11,4 +11,3 @@ from legacy.mama_ldscore import main_func
 
 if __name__ == '__main__':
     main_func(sys.argv)
-
