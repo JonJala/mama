@@ -533,7 +533,8 @@ def set_up_logger(log_file: str, log_level: int):
 
 
 #################################
-def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace, Dict[str, Any]]:
+def setup_func(argv: List[str], get_parser: ParserFunc,
+               header: str = HEADER) -> Tuple[argp.Namespace, Dict[str, Any]]:
     """
     Function to handle argument parsing, logging setup, and header printing
 
@@ -563,7 +564,7 @@ def setup_func(argv: List[str], get_parser: ParserFunc) -> Tuple[argp.Namespace,
     set_up_logger(log_file, log_level)
 
     # Log header and other information
-    logging.info(HEADER)
+    logging.info(header)
     logging.info("See full log at: %s\n", os.path.abspath(log_file))
     logging.info("\nProgram executed via:\n%s\n", format_terminal_call(argv))
 
