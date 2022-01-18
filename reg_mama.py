@@ -147,8 +147,9 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
             reg_matrix[:, LD_SCORE_COEF] = ldscores[:, p1, p2] # LD Score column
             reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p1], harm_ses[:, p2]) # SE product
 
-            # Determine weight factor for this population pair (geom. mean of population factors)
-            cross_pop_weights = pop_weights[p1] * pop_weights[p2]
+            # Determine weight factor for this population pair (1/abs(cross-pop LD score))
+            cross_pop_weights = np.where(ldscores[:, p1, p2] != 0.0,
+                                         np.abs(np.reciprocal(ldscores[:, p1, p2])), 0.0)
 
             # Run the regression and set opposing matrix entry to make coef matrix symmetric
             result_coefs[:, p1, p2] = run_regression(

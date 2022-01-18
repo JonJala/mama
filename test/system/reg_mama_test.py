@@ -135,7 +135,7 @@ class TestRunLdScoreRegressions:
     #########
     def test__two_pop_precanned_data__expected_results(self):
         # Run for two populations (further weighting tests)
-        ld_scores = np.array([[[1.0, 0.0], [0.0, 4.0]],
+        ld_scores = np.array([[[1.0, 9.0], [9.0, 4.0]],
                               [[9.0, 1.0], [1.0, 16.0]],
                               [[25.0, 100.0], [100.0, 36.0]]])
         ses = np.array([[4.0, 8.0],
@@ -147,9 +147,9 @@ class TestRunLdScoreRegressions:
 
         ld_coef, int_coef, se2_coef = mp.run_ldscore_regressions(betas, ses, ld_scores)
 
-        expected_ld_coef = np.array([[0.7, 5.0 / 46.0], [5.0 / 46.0, 0.25]])
-        expected_int_coef = np.array([[3.5, -181.0 / 23.0], [-181.0 / 23.0, 0.0]])
-        expected_se2_coef = np.array([[-0.2, 51.0 / 184.0], [51.0 / 184.0, 0.0]])
+        expected_ld_coef = np.array([[0.7, 2.0 / 31.0], [2.0 / 31.0, 0.25]])
+        expected_int_coef = np.array([[3.5, -107.0 / 31.0], [-107.0 / 31.0, 0.0]])
+        expected_se2_coef = np.array([[-0.2, 105.0 / 868.0], [105.0 / 868.0, 0.0]])
 
         assert np.allclose(ld_coef, expected_ld_coef)
         assert np.allclose(int_coef, expected_int_coef)
