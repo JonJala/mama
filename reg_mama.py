@@ -48,8 +48,8 @@ def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> 
     if isinstance(opt_str, np.ndarray):
         m_size = len(opt_str)
         if m_size != num_pops:
-            raise RuntimeError("Regression coefficient matrix size (%sx%s) does not match "
-                               "number of populations %s" % (m_size, m_size, num_pops))
+            raise RuntimeError(f"Regression coefficient matrix size ({m_size}x{m_size}) "
+                               f"does not match number of populations {num_pops}")
         result = opt_str
     elif opt_str == MAMA_REG_OPT_ALL_FREE:
         result = np.full((num_pops, num_pops), np.NaN)
@@ -65,7 +65,7 @@ def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> 
         # MAMA_REG_OPT_SET_CORR must be handled elsewhere (a constant matrix does not suffice)
         result = np.full((num_pops, num_pops), np.NaN)
     else:
-        raise RuntimeError("Invalid type (%s) or value (%s) for opt_str" % (type(opt_str), opt_str))
+        raise RuntimeError(f"Invalid type ({type(opt_str)}) or value ({opt_str}%s) for opt_str")
 
     return result
 

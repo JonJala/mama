@@ -44,7 +44,7 @@ class TestCollateDfValues:
         pop_ids = list(sumstats.keys())
 
         # Create LD score data frames
-        ld_cols = ["%s_%s" % (i[0],j[0]) for i in pop_ids for j in pop_ids if i[0] >= j[0]]
+        ld_cols = ["_".join((str(i[0]),str(j[0]))) for i in pop_ids for j in pop_ids if i[0] >= j[0]]
         ldscores = pd.DataFrame(index=collate_df_values_test_df.index, columns=ld_cols)
         for col in ld_cols:
             ldscores[col] = np.random.rand(num_snps)

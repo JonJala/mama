@@ -74,29 +74,27 @@ CORR_MAX_SCALING = 1.0
 # Derived Constants###########################
 
 # Dictionaries that create and map argparse flags to the corresponding column affected
-MAMA_RE_REPLACE_FLAGS = {col : "replace-%s-col-match" % col.lower()
-                         for col in MAMA_RE_EXPR_MAP}
-MAMA_RE_ADD_FLAGS = {col : "add-%s-col-match" % col.lower()
-                     for col in MAMA_RE_EXPR_MAP}
+MAMA_RE_REPLACE_FLAGS = {col : f"replace-{col.lower()}-col-match" for col in MAMA_RE_EXPR_MAP}
+MAMA_RE_ADD_FLAGS = {col : f"add-{col.lower()}-col-match" for col in MAMA_RE_EXPR_MAP}
 
 # Default prefix to use for output when not specified
-DEFAULT_FULL_OUT_PREFIX = "%s/%s" % (os.getcwd(), DEFAULT_SHORT_PREFIX)
+DEFAULT_FULL_OUT_PREFIX = os.path.join(os.getcwd(), DEFAULT_SHORT_PREFIX)
 
 # Logging banner to use at the top of the log file
-HEADER = """
+HEADER = f"""
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
 <>
 <> MAMA: Multi-Ancestry Meta-Analysis
-<> Version: %s
+<> Version: {__version__}
 <> (C) 2020 Social Science Genetic Association Consortium (SSGAC)
 <> MIT License
 <>
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
-<> Software-related correspondence: %s or %s
-<> All other correspondence: %s
+<> Software-related correspondence: {SOFTWARE_CORRESPONDENCE_EMAIL1} or
+                                    {SOFTWARE_CORRESPONDENCE_EMAIL2}
+<> All other correspondence: {OTHER_CORRESPONDENCE_EMAIL}
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
-""" % (__version__, SOFTWARE_CORRESPONDENCE_EMAIL1, SOFTWARE_CORRESPONDENCE_EMAIL2,
-       OTHER_CORRESPONDENCE_EMAIL)
+"""
 
 
 # Functions ##################################
@@ -127,8 +125,8 @@ def reg_ex(s_input: str) -> str:
     try:
         re.compile(stripped_regex)
     except re.error as exc:
-        raise RuntimeError("Invalid regular expression \"%s\" supplied: %s" %
-                           (stripped_regex, exc)) from exc
+        raise RuntimeError(f"Invalid regular expression \"{stripped_regex}\" "
+                           f"supplied: {exc}") from exc
 
     return stripped_regex
 
@@ -144,7 +142,7 @@ def input_file(s_input: str) -> str:
     """
     stripped_file = s_input.strip()
     if not os.path.exists(stripped_file):
-        raise FileNotFoundError("The input file [%s] does not exist." % stripped_file)
+        raise FileNotFoundError(f"The input file [{stripped_file}] does not exist.")
 
     return os.path.abspath(stripped_file)
 
@@ -163,12 +161,12 @@ def output_prefix(s_input: str) -> str:
 
     # Validate existence of output directory (and that no conflicts exist)
     if os.path.exists(stripped_p):
-        raise RuntimeError("The designated output prefix \"%s\" conflicts with an existing "
-                           "file or directory" % stripped_p)
+        raise RuntimeError(f"The designated output prefix \"{stripped_p}\" conflicts with "
+                           f"an existing file or directory")
 
     s_dir = os.path.dirname(stripped_p)
     if not os.path.exists(s_dir):
-        raise FileNotFoundError("The designated output directory [%s] does not exist." % s_dir)
+        raise FileNotFoundError(f"The designated output directory [{s_dir}] does not exist.")
 
     return stripped_p
 
@@ -189,8 +187,8 @@ def ss_input_tuple(s_input: str) -> Tuple[str, str, str]:
     try:
         ss_file, ancestry, phenotype = map(lambda x: x.strip(), s_input.split(INPUT_TRIPLE_SEP))
     except Exception as exc:
-        raise RuntimeError("Error parsing %s into GWAS file, ancestry, and phenotype" %
-                           s_input) from exc
+        raise RuntimeError(f"Error parsing {s_input} into GWAS file, ancestry, "
+                           f"and phenotype") from exc
 
     return input_file(ss_file), ancestry.strip(), phenotype.strip()
 
@@ -218,7 +216,7 @@ def glob_path(s_input: str) -> List[str]:
     """
     file_path_list = glob.glob(s_input)
     if not file_path_list:
-        raise RuntimeError("Glob string \"%s\" matches with no files." % s_input)
+        raise RuntimeError(f"Glob string \"{s_input}\" matches with no files.")
     return [os.path.abspath(f) for f in file_path_list]
 
 
@@ -233,8 +231,8 @@ def corr_coef(s_input: str) -> float:
 
     c = float(s_input)
     if c < CORR_MIN_SCALING or c > CORR_MAX_SCALING:
-        raise ValueError("Value given for correlation coefficient (%s) must be between "
-                         "%s and %s." % (s_input, CORR_MIN_SCALING, CORR_MAX_SCALING))
+        raise ValueError(f"Value given for correlation coefficient ({s_input}) must be between "
+                         f"{CORR_MIN_SCALING} and {CORR_MAX_SCALING}.")
     return c
 
 
@@ -256,15 +254,15 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     # Input Options
     in_opt = parser.add_argument_group(title="Main Input Specifications")
     in_opt.add_argument("--sumstats", type=ss_input_tuple, nargs="+", required=True,
-                        metavar="FILE%sANCESTRY%sPHENOTYPE" % (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP),
-                        help="List of triples F%sA%sP where F is path to a summary statistics "
-                             "file, A is the name of an ancestry, and P is the name of a "
+                        metavar=f"FILE{INPUT_TRIPLE_SEP}ANCESTRY{INPUT_TRIPLE_SEP}PHENOTYPE",
+                        help=f"List of triples F{INPUT_TRIPLE_SEP}A{INPUT_TRIPLE_SEP}P "
+                             "where F is path to a summary statistics file, "
+                             "A is the name of an ancestry, and P is the name of a "
                              "phenotype.  The ancestry is used for column lookup in the "
                              "LD Score file (columns are expected to be of the form ANC1_ANC2, "
                              "where ANC1 and ANC2 are ancestries.  The ancestry and phenotype "
                              "for a given summary statistics file are used in combination as a "
-                             "unique identifier.  Currently, these are all case sensitive." %
-                        (INPUT_TRIPLE_SEP, INPUT_TRIPLE_SEP))
+                             "unique identifier.  Currently, these are all case sensitive.")
     in_opt.add_argument("--ld-scores", type=glob_path, required=True, metavar="GLOB_PATH",
                         help="Path to LD scores file(s).  See python glob module for documentation "
                              "on the string to be provided here (full path with support for \"*\", "
@@ -282,10 +280,10 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     out_opt = parser.add_argument_group(title="Output Specifications")
     out_opt.add_argument("--out", metavar="FILE_PREFIX", type=output_prefix,
                          default=DEFAULT_FULL_OUT_PREFIX,
-                         help="Full prefix of output files (logs, sumstats results, etc.).  If not "
-                              "set, [current working directory]/%s = \"%s\" will be used.  "
-                              "Note: The containing directory specified must already exist." %
-                         (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
+                         help="Full prefix of output files (logs, sumstats results, etc.).  "
+                              f"If not set, [current working directory]/{DEFAULT_SHORT_PREFIX} = "
+                              f"\"{DEFAULT_FULL_OUT_PREFIX}\" will be used.  "
+                              "Note: The containing directory specified must already exist.")
     out_opt.add_argument("--out-reg-coef", action="store_true",
                          help="If specified, MAMA will output the LD regression coefficients "
                               "to disk.  This is useful for reference, but also in the case "
@@ -353,9 +351,9 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                             help="Optional argument indicating that off-diagonal elements in the "
                                  "LD score coefficients matrix should be set to be equal to the "
                                  "square root of the product of the associated diagonal entries  "
-                                 "multiplied by the given scaling factor in range [%s, %s].  "
-                                 "This is mutually exclusive with other --reg-ld-* options" %
-                                 (CORR_MIN_SCALING, CORR_MAX_SCALING))
+                                 "multiplied by the given scaling factor in range "
+                                 f"[{CORR_MIN_SCALING}, {CORR_MAX_SCALING}].  "
+                                 "This is mutually exclusive with other --reg-ld-* options")
     reg_ld_opt.add_argument("--reg-ld-unc", action="store_true",
                             help="Optional argument indicating that the LD score regression "
                                  "coefficients are unconstrained.  This is the default option.")
@@ -408,13 +406,13 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     ss_filt_opt.add_argument("--freq-bounds", nargs=2, metavar=("MIN", "MAX"), type=float,
                              help="This option adjusts the filtering of summary statistics.  "
                                   "Specify minimum frequency first, then maximum.  "
-                                  "Defaults to minimum of %s and maximum of %s." %
-                             (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
+                                  f"Defaults to minimum of {DEFAULT_MAF_MIN} and "
+                                  f"maximum of {DEFAULT_MAF_MAX}.")
     ss_filt_opt.add_argument("--allowed-chr-values", type=str.upper, nargs="+",
                              help="This option allows specification of allowed values for the "
                                   "chromosome field in summary statistics.  Case is converted to "
-                                  "upper here and in the resulting data.  Default is %s." %
-                             DEFAULT_CHR_LIST)
+                                  "upper here and in the resulting data.  "
+                                  f"Default is {DEFAULT_CHR_LIST}.")
     ss_filt_opt.add_argument("--allow-palindromic-snps", action="store_true",
                              help="This option removes the filter that drops SNPs whose major "
                                   "and minor alleles form a base pair (e.g. Major allele = \'G\' "
@@ -423,22 +421,22 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     # Summary Statistics Column Options
     ss_col_opt = parser.add_argument_group(title="Summary Statistics Column Options",
                                            description="Options for parsing summary stats columns")
-    for col in MAMA_RE_EXPR_MAP:
+    for col, default_regex in MAMA_RE_EXPR_MAP.items():
         col_opt_group = ss_col_opt.add_mutually_exclusive_group()
         col_opt_group.add_argument("--" + MAMA_RE_ADD_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option adds to the default (case-insensitive) "
-                                        "regular expression \"%s\" used for "
-                                        "matching / identifying the %s column.  "
+                                        f"regular expression \"{default_regex}\" used for "
+                                        f"matching / identifying the {col} column.  "
                                         "Use any valid Python re module string.  "
-                                        "Mutually exclusive with other --*-%s-col-match options " %
-                                   (MAMA_RE_EXPR_MAP[col], col, col.lower()))
+                                        "Mutually exclusive with other "
+                                        f"--*-{col.lower()}-col-match options ")
         col_opt_group.add_argument("--" + MAMA_RE_REPLACE_FLAGS[col], metavar="REGEX", type=reg_ex,
                                    help="This option replaces the default (case-insensitive) "
-                                        "regular expression \"%s\" used for "
-                                        "matching / identifying the %s column.  "
+                                        f"regular expression \"{default_regex}\" used for "
+                                        f"matching / identifying the {col} column.  "
                                         "Use any valid Python re module string.  "
-                                        "Mutually exclusive with other --*-%s-col-match options " %
-                                   (MAMA_RE_EXPR_MAP[col], col, col.lower()))
+                                        "Mutually exclusive with other "
+                                        f"--*-{col.lower()}-col-match options ")
 
     return parser
 
@@ -599,9 +597,9 @@ def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any])
     #   1) LD coefs
     ld_coef_matrix = getattr(pargs, "reg_ld_coef", None)
     if ld_coef_matrix is not None:
-        if len(ld_coef_matrix) != num_pops * num_pops:
-            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
-                               "(LD) but got %s." % (num_pops_sq, len(ld_coef_matrix)))
+        if len(ld_coef_matrix) != num_pops_sq:
+            raise RuntimeError(f"Expected a matrix with {num_pops_sq} elements for "
+                               f"regression coefficients (LD) but got {len(ld_coef_matrix)}.")
         internal_values[REG_LD_COEF_OPT] = ld_coef_matrix.reshape((num_pops, num_pops))
         internal_values[REG_LD_COEF_SCALE_COEF] = None
     elif getattr(pargs, "reg_ld_set_corr", None):
@@ -617,8 +615,9 @@ def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any])
     int_coef_matrix = getattr(pargs, "reg_int_coef", None)
     if int_coef_matrix is not None:
         if len(int_coef_matrix) != num_pops * num_pops:
-            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
-                               "(intercept) but got %s." % (num_pops_sq, len(int_coef_matrix)))
+            raise RuntimeError(f"Expected a matrix with {num_pops_sq} elements for "
+                               "regression coefficients (intercept) but got "
+                               f"{len(int_coef_matrix)}.")
         internal_values[REG_INT_COEF_OPT] = int_coef_matrix.reshape((num_pops, num_pops))
     elif getattr(pargs, "reg_int_zero", None):
         internal_values[REG_INT_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
@@ -631,8 +630,8 @@ def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any])
     se2_coef_matrix = getattr(pargs, "reg_se2_coef", None)
     if se2_coef_matrix is not None:
         if len(se2_coef_matrix) != num_pops * num_pops:
-            raise RuntimeError("Expected a matrix with %s elements for regression coefficients "
-                               "(SE^2) but got %s." % (num_pops_sq, len(se2_coef_matrix)))
+            raise RuntimeError(f"Expected a matrix with {num_pops_sq} elements for regression "
+                               f"coefficients (SE^2) but got {len(se2_coef_matrix)}.")
         internal_values[REG_SE2_COEF_OPT] = se2_coef_matrix.reshape((num_pops, num_pops))
     elif getattr(pargs, "reg_se2_zero", None):
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_ZERO
@@ -665,7 +664,7 @@ def construct_re_map(pargs: argp.Namespace) -> Dict[str, str]:
         additional_re = getattr(pargs, to_arg(MAMA_RE_ADD_FLAGS[req_col]), None)
         replacement_re = getattr(pargs, to_arg(MAMA_RE_REPLACE_FLAGS[req_col]), None)
         if additional_re:
-            re_map[req_col] = "%s|%s" % (re_map[req_col], additional_re)
+            re_map[req_col] = f"{re_map[req_col]}|{additional_re}"
         elif replacement_re:
             re_map[req_col] = replacement_re
 
@@ -689,15 +688,15 @@ def construct_filter_map(pargs: argp.Namespace) -> Dict[str, Tuple[Filter, str]]
     filt_map = MAMA_STD_FILTERS.copy()
     if getattr(pargs, "freq_bounds", None):
         if pargs.freq_bounds[0] > pargs.freq_bounds[1]:
-            raise RuntimeError("Minimum MAF (%s) must be less than maximum MAF (%s) " %
-                               (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+            raise RuntimeError(f"Minimum MAF ({pargs.freq_bounds[0]}) must be less than "
+                               f"maximum MAF ({pargs.freq_bounds[1]})")
         filt_map[FREQ_FILTER] = (create_freq_filter(pargs.freq_bounds[0], pargs.freq_bounds[1]),
-                                 "Filters out SNPs with FREQ values outside of [%s, %s]" %
-                                 (pargs.freq_bounds[0], pargs.freq_bounds[1]))
+                                 "Filters out SNPs with FREQ values outside of "
+                                 f"[{pargs.freq_bounds[0]}, {pargs.freq_bounds[1]}]")
     if getattr(pargs, "allowed_chr_values", None):
         filt_map[CHR_FILTER] = (create_chr_filter(pargs.allowed_chr_values),
-                                "Filters out SNPs with listed chromosomes not in %s" %
-                                pargs.allowed_chr_values)
+                                "Filters out SNPs with listed chromosomes not in "
+                                f"{pargs.allowed_chr_values}")
     if getattr(pargs, "allow_palindromic_snps", None):
         del filt_map[SNP_PALIN_FILT]
 
@@ -720,16 +719,16 @@ def construct_ss_and_col_maps(pargs: argp.Namespace, re_map: Dict[str, str])\
                 2) the map between population ID (ancestry + phenotype) and summary stats filename
     """
 
-    col_map = dict()
-    ss_map = dict()
+    col_map = {}
+    ss_map = {}
     for ss_file, anc, phen in pargs.sumstats:
         cols = list(pd.read_csv(ss_file, sep=None, engine='python', nrows=1, comment="#").columns)
         ss_map[(anc, phen)] = ss_file
         try:
             col_map[(anc, phen)] = determine_column_mapping(cols, re_map, MAMA_REQ_STD_COLS)
         except RuntimeError as exc:
-            raise RuntimeError("Column mapping error for summary statistics file %s (ancestry = "
-                               "%s and phenotype = %s): %s" % (ss_file, anc, phen, exc)) from exc
+            raise RuntimeError(f"Column mapping error for summary statistics file {ss_file} "
+                               f"(ancestry = {anc} and phenotype = {phen}): {exc}") from exc
 
     return col_map, ss_map
 
@@ -751,7 +750,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
     logging.debug("\nProgram was called with the following arguments:\n%s", user_args)
 
     # Prepare dictionary that will hold internal values for this program
-    internal_values = dict()
+    internal_values = {}
 
     # Get output directory
     internal_values[OUT_DIR] = os.path.dirname(pargs.out)
@@ -763,14 +762,14 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
         ancestries = {a for ss_file, a, p in pargs.sumstats}
         anc_tuples = itertools.combinations_with_replacement(ancestries, 2)
         missing_ld_pair_cols = {anc_tuple for anc_tuple in anc_tuples
-                                if not("%s_%s" % anc_tuple in ld_cols or
-                                       "%s_%s" % anc_tuple[::-1] in ld_cols)}
+                                if not('_'.join(anc_tuple) in ld_cols or
+                                       '_'.join(anc_tuple[::-1]) in ld_cols)}
         if missing_ld_pair_cols:
-            raise RuntimeError("The LD scores file %s is missing columns for the following "
-                               "ancestry pairs: %s" % (ld_score_file, missing_ld_pair_cols))
+            raise RuntimeError(f"The LD scores file {ld_score_file} is missing columns "
+                               f"for the following ancestry pairs: {missing_ld_pair_cols}")
         if SNP_COL not in ld_cols:
-            raise RuntimeError("The LD scores file %s is missing SNP column \"%s\"" %
-                               (ld_score_file, SNP_COL))
+            raise RuntimeError(f"The LD scores file {ld_score_file} is missing "
+                               f"SNP column \"{SNP_COL}\"")
 
     # Construct RE map for sumstats column matching (must be done before verifying sumstats columns)
     internal_values[RE_MAP] = construct_re_map(pargs)
@@ -843,7 +842,7 @@ def main_func(argv: List[str]):
         # Write out the summary statistics to disk
         logging.info("Writing results to disk.")
         for (ancestry, phenotype), ss_df in result_sumstats.items():
-            filename = "%s_%s_%s%s" % (iargs["out"], ancestry, phenotype, RESULTS_SUFFIX)
+            filename = f"{iargs['out']}_{ancestry}_{phenotype}{RESULTS_SUFFIX}"
             logging.info("\t%s", filename)
             write_sumstats_to_file(filename, ss_df)
 

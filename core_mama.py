@@ -113,9 +113,6 @@ def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
     :return: The Sigma matrices as indicated in the MAMA paper (PxP per SNP) = (Mx)PxP
     """
 
-    # Get values for M and P (used to keep track of slices / indices / broadcasting)
-    M, P = sumstat_ses.shape
-
     # Create an initial MxPxP matrix with the se components
     result_matrix = sumstat_ses[:, :, np.newaxis] * sumstat_ses[:, np.newaxis, :]
 

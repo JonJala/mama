@@ -69,13 +69,13 @@ MAMA_STD_FILTER_FUNCS = {
         {
             'func' : lambda df: df[list(MAMA_REQ_STD_COLS)].isnull().any(axis=1),
             'description' : "Filters out SNPs with any NaN values in required "
-                            "columns %s" % MAMA_REQ_STD_COLS
+                            f"columns {MAMA_REQ_STD_COLS}"
         },
     FREQ_FILTER :
         {
             'func' : create_freq_filter(DEFAULT_MAF_MIN, DEFAULT_MAF_MAX),
             'description' : "Filters out SNPs with FREQ values outside of "
-                            "[%s, %s]" % (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX)
+                            f"[{DEFAULT_MAF_MIN}, {DEFAULT_MAF_MAX}]"
         },
     SE_FILTER :
         {
@@ -85,7 +85,7 @@ MAMA_STD_FILTER_FUNCS = {
     CHR_FILTER :
         {
             'func' : create_chr_filter(DEFAULT_CHR_LIST),
-            'description' : "Filters out SNPs with listed chromosomes not in %s" % DEFAULT_CHR_LIST
+            'description' : f"Filters out SNPs with listed chromosomes not in {DEFAULT_CHR_LIST}"
         },
     SNP_DUP_ALL_FILTER :
         {
@@ -100,7 +100,7 @@ MAMA_STD_FILTER_FUNCS = {
     SNP_INVALID_ALLELES_FILTER :
         {
             'func' : lambda df: ~df[A1_COL].isin(BASES) | ~df[A2_COL].isin(BASES),
-            'description' : "Filters out SNPs with alleles not in %s" % BASES
+            'description' : f"Filters out SNPs with alleles not in {BASES}"
         },
     SNP_NEGATIVE_P_FILTER :
         {
@@ -162,8 +162,8 @@ def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any, sep_arg: Union
             possible_df = pd.read_csv(possible_df, sep=sep_arg, comment='#')
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(possible_df, pd.DataFrame):
-        raise RuntimeError("ERROR: Either pass in filename or DataFrame for %s rather than [%s]" %
-                           (id_val, type(possible_df)))
+        raise RuntimeError(f"ERROR: Either pass in filename or DataFrame for {id_val} "
+                           f"rather than [{type(possible_df)}]")
 
     return possible_df
 
@@ -291,9 +291,9 @@ def collate_df_values(sumstats: Dict[PopulationId, pd.DataFrame], ldscores: pd.D
         for second_pop_num, second_pop_id in enumerate(ordering):
             second_ancestry_id = second_pop_id[0]
 
-            ldscore_col_name = "%s_%s" % (ancestry_id, second_ancestry_id)
+            ldscore_col_name = "_".join((str(ancestry_id), str(second_ancestry_id)))
             if ldscore_col_name not in ldscores.columns:
-                ldscore_col_name = "%s_%s" % (second_ancestry_id, ancestry_id)
+                ldscore_col_name = "_".join((str(second_ancestry_id), str(ancestry_id)))
 
             ldscore_arr[:, pop_num, second_pop_num] = ldscores[ldscore_col_name].to_numpy()
 
@@ -407,7 +407,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
 
     # If column maps are not specified, set to empty dictionary
     if not column_maps:
-        column_maps = dict()
+        column_maps = {}
 
     # If regular expression map isn't specified, use MAMA default
     if not re_expr_map:
