@@ -356,6 +356,9 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                  "multiplied by the given scaling factor in range [%s, %s].  "
                                  "This is mutually exclusive with other --reg-ld-* options" %
                                  (CORR_MIN_SCALING, CORR_MAX_SCALING))
+    reg_ld_opt.add_argument("--reg-ld-unc", action="store_true",
+                            help="Optional argument indicating that the LD score regression "
+                                 "coefficients are unconstrained.  This is the default option.")
     #   SE^2 coefficient options (subgroup)
     reg_se2_opt = reg_opt.add_mutually_exclusive_group()
     reg_se2_opt.add_argument("--reg-se2-coef", type=input_np_matrix, metavar="FILE",
@@ -373,8 +376,12 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                                   "This is mutually exclusive with other --reg-se2-* options")
     reg_se2_opt.add_argument("--reg-se2-diag", action="store_true",
                              help="Optional argument indicating that the SE^2 coefficients matrix "
-                                  "should have off-diagonal elements set to zero.  "
+                                  "should have off-diagonal elements set to zero.  This is the "
+                                  "default option."
                                   "This is mutually exclusive with other --reg-se2-* options")
+    reg_se2_opt.add_argument("--reg-se2-unc", action="store_true",
+                             help="Optional argument indicating that the SE^2 regression "
+                                  "coefficients are unconstrained.")
     #   Intercept coefficient options (subgroup)
     reg_int_opt = reg_opt.add_mutually_exclusive_group()
     reg_int_opt.add_argument("--reg-int-coef", type=input_np_matrix, metavar="FILE",
@@ -390,6 +397,9 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
                              help="Optional argument indicating that the intercept coefficients "
                                   "matrix should have off-diagonal elements set to zero.  "
                                   "This is mutually exclusive with other --reg-int-* options")
+    reg_int_opt.add_argument("--reg-int-unc", action="store_true",
+                             help="Optional argument indicating that the intercept regression "
+                                  "coefficients are unconstrained.  This is the default option.")
 
     # Summary Statistics Filtering Options
     ss_filt_opt = parser.add_argument_group(title="Summary Statistics Filtering Options",
@@ -630,8 +640,11 @@ def validate_reg_options(pargs: argp.Namespace, internal_values: Dict[str, Any])
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_IDENT
     elif getattr(pargs, "reg_se2_diag", None):
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
-    else:
+    elif getattr(pargs, "reg_se2_unc", None):
         internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_ALL_FREE
+    else:
+        # The default option for SE^2 should be off-diagonal elements set to 0
+        internal_values[REG_SE2_COEF_OPT] = MAMA_REG_OPT_OFFDIAG_ZERO
     logging.debug("Regression coeffient option (SE^2) = %s", internal_values[REG_SE2_COEF_OPT])
 
 

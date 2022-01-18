@@ -95,7 +95,7 @@ class TestValidateInputs:
         assert not result[mama.HARM_FILENAME_FSTR]
         assert not result[mama.REG_FILENAME_FSTR]
         assert result[mama.REG_LD_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
-        assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
+        assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_OFFDIAG_ZERO
         assert result[mama.REG_INT_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
         assert not result['use_standardized_units']
 
@@ -239,20 +239,23 @@ class TestValidateInputs:
 
     LD_OPT_TUPLES = [
         ("dummy_attr", mama.MAMA_REG_OPT_ALL_FREE),
-        ("reg_ld_set_corr", mama.MAMA_REG_OPT_SET_CORR)
+        ("reg_ld_set_corr", mama.MAMA_REG_OPT_SET_CORR),
+        ("reg_ld_unc", mama.MAMA_REG_OPT_ALL_FREE)
     ]
 
     SE2_OPT_TUPLES = [
-        ("dummy_attr", mama.MAMA_REG_OPT_ALL_FREE),
+        ("dummy_attr", mama.MAMA_REG_OPT_OFFDIAG_ZERO),
         ("reg_se2_zero", mama.MAMA_REG_OPT_ALL_ZERO),
         ("reg_se2_ident", mama.MAMA_REG_OPT_IDENT),
         ("reg_se2_diag", mama.MAMA_REG_OPT_OFFDIAG_ZERO),
+        ("reg_se2_unc", mama.MAMA_REG_OPT_ALL_FREE)
     ]
 
     INT_OPT_TUPLES = [
         ("dummy_attr", mama.MAMA_REG_OPT_ALL_FREE),
         ("reg_int_zero", mama.MAMA_REG_OPT_ALL_ZERO),
         ("reg_int_diag", mama.MAMA_REG_OPT_OFFDIAG_ZERO),
+        ("reg_int_unc", mama.MAMA_REG_OPT_ALL_FREE)
     ]
     @pytest.mark.parametrize("ld_se2_int_tuples",
                              list(itertools.product(LD_OPT_TUPLES, SE2_OPT_TUPLES, INT_OPT_TUPLES)))
@@ -289,7 +292,7 @@ class TestValidateInputs:
         assert isinstance(result[mama.REG_LD_COEF_OPT], np.ndarray)
         assert result[mama.REG_LD_COEF_OPT].shape == (9, 9)
         assert np.allclose(result[mama.REG_LD_COEF_OPT], np.outer(arr, arr))
-        assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
+        assert result[mama.REG_SE2_COEF_OPT] == mama.MAMA_REG_OPT_OFFDIAG_ZERO
         assert result[mama.REG_INT_COEF_OPT] == mama.MAMA_REG_OPT_ALL_FREE
 
     #########
