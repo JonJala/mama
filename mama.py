@@ -375,7 +375,7 @@ def get_mama_parser(progname: str) -> argp.ArgumentParser:
     reg_se2_opt.add_argument("--reg-se2-diag", action="store_true",
                              help="Optional argument indicating that the SE^2 coefficients matrix "
                                   "should have off-diagonal elements set to zero.  This is the "
-                                  "default option."
+                                  "default option.  "
                                   "This is mutually exclusive with other --reg-se2-* options")
     reg_se2_opt.add_argument("--reg-se2-unc", action="store_true",
                              help="Optional argument indicating that the SE^2 regression "
