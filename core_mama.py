@@ -114,19 +114,14 @@ def create_sigma_matrix(sumstat_ses, reg_se2_coefs, reg_const_coefs):
     """
 
     # Get values for M and P (used to keep track of slices / indices / broadcasting)
-    M = sumstat_ses.shape[0]
-    P = sumstat_ses.shape[1]
+    M, P = sumstat_ses.shape
 
-    # Create an MxPxP matrix with each PxP slice initially equal to reg_const_coefs
-    result_matrix = np.full(shape=(M, P, P), fill_value=reg_const_coefs)
+    # Create an initial MxPxP matrix with the se components
+    result_matrix = sumstat_ses[:, :, np.newaxis] * sumstat_ses[:, np.newaxis, :]
 
-    # Create an M X P matrix, whose rows of length P will need to be added to the diagonals
-    # of the PxP slices in the final result
-    se_diags_as_matrix = sumstat_ses * sumstat_ses * np.diag(reg_se2_coefs)
-
-    # Broadcast-add the rows of the SE term matrix to the diagonals of slices of the result matrix
-    d_indices = np.arange(P)
-    result_matrix[:, d_indices, d_indices] += se_diags_as_matrix
+    # Incorporate the regression coefficients
+    result_matrix *= reg_se2_coefs
+    result_matrix += reg_const_coefs
 
     return result_matrix
 
