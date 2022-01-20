@@ -36,8 +36,7 @@ ParserFunc = Callable[[str], argp.ArgumentParser]
 __version__ = '1.0.0'
 
 # Email addresses to use in header banner to denote contacts
-SOFTWARE_CORRESPONDENCE_EMAIL1 = "grantgoldman0@gmail.com"
-SOFTWARE_CORRESPONDENCE_EMAIL2 = "jjala.ssgac@gmail.com"
+SOFTWARE_CORRESPONDENCE_EMAIL = "jjala.ssgac@gmail.com"
 OTHER_CORRESPONDENCE_EMAIL = "paturley@broadinstitute.org"
 
 # The default short file prefix to use for output and logs
@@ -90,8 +89,7 @@ HEADER = f"""
 <> MIT License
 <>
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
-<> Software-related correspondence: {SOFTWARE_CORRESPONDENCE_EMAIL1} or
-                                    {SOFTWARE_CORRESPONDENCE_EMAIL2}
+<> Software-related correspondence: {SOFTWARE_CORRESPONDENCE_EMAIL}
 <> All other correspondence: {OTHER_CORRESPONDENCE_EMAIL}
 <><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>
 """
