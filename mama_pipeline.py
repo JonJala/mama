@@ -31,7 +31,18 @@ PhenotypeId = Any  # pylint: disable=invalid-name
 PopulationId = Tuple[AncestryId, PhenotypeId]
 
 # Columns that MAMA requires
-MAMA_REQ_STD_COLS = {SNP_COL, CHR_COL, BETA_COL, FREQ_COL, SE_COL, A1_COL, A2_COL, BP_COL, P_COL}
+MAMA_REQ_COLS_MAP = {
+    SNP_COL : str,
+    CHR_COL : str,
+    BETA_COL : float,
+    FREQ_COL : float,
+    SE_COL : float,
+    A1_COL : str,
+    A2_COL : str,
+    BP_COL : int,
+    P_COL : float
+}
+MAMA_REQ_STD_COLS = set(MAMA_REQ_COLS_MAP.keys())
 
 # Map of default regular expressions used to convert summary stat column names to standardized names
 MAMA_RE_EXPR_MAP = {
@@ -159,7 +170,8 @@ def obtain_df(possible_df: Union[str, pd.DataFrame], id_val: Any, sep_arg: Union
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=pd.errors.ParserWarning,
                                     message="Falling back to the \'python\' engine")
-            possible_df = pd.read_csv(possible_df, sep=sep_arg, comment='#')
+            possible_df = pd.read_csv(possible_df, sep=sep_arg, comment='#',
+                                      dtype=MAMA_REQ_COLS_MAP)
     # If neither a string (presumed to be a filename) nor DataFrame are passed in, throw error
     elif not isinstance(possible_df, pd.DataFrame):
         raise RuntimeError(f"ERROR: Either pass in filename or DataFrame for {id_val} "
@@ -520,7 +532,7 @@ def mama_pipeline(sumstats: Dict[PopulationId, Any], ldscore_list: List[Any], sn
             logging.debug("\tRS IDs = %s", omega_drop_rsids[:MAX_RSID_LOGGING] + ["..."]
                           if len(omega_drop_rsids) > MAX_RSID_LOGGING else omega_drop_rsids)
     else:
-        logging.info("\nSkipping positive-semi-definiteness check of Omega due to the"
+        logging.info("\nSkipping positive-semi-definiteness check of Omega due to the "
                      "presence of only one population.\n")
 
     logging.info("Dropped %s SNPs due to non-positive-definiteness of sigma.",

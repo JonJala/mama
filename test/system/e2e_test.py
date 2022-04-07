@@ -123,11 +123,15 @@ class TestEndToEnd:
         assert os.path.exists(harmfile1)
         assert os.path.exists(harmfile2)
 
-        harm1_df = pd.read_csv(harmfile1, sep=None, comment="#", engine="python")
-        harm2_df = pd.read_csv(harmfile2, sep=None, comment="#", engine="python")
+        harm1_df = pd.read_csv(harmfile1, sep=None, comment="#", engine="python",
+                               dtype=mp.MAMA_REQ_COLS_MAP)
+        harm2_df = pd.read_csv(harmfile2, sep=None, comment="#", engine="python",
+                               dtype=mp.MAMA_REQ_COLS_MAP)
 
-        harm1_expected_df = pd.read_csv(harmfile1_expected, sep=None, comment="#", engine="python")
-        harm2_expected_df = pd.read_csv(harmfile2_expected, sep=None, comment="#", engine="python")
+        harm1_expected_df = pd.read_csv(harmfile1_expected, sep=None, comment="#",
+                                        engine="python", dtype=mp.MAMA_REQ_COLS_MAP)
+        harm2_expected_df = pd.read_csv(harmfile2_expected, sep=None, comment="#",
+                                        engine="python", dtype=mp.MAMA_REQ_COLS_MAP)
 
         pd.testing.assert_frame_equal(harm1_df, harm1_expected_df, check_exact=False)
         pd.testing.assert_frame_equal(harm2_df, harm2_expected_df, check_exact=False)

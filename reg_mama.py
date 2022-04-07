@@ -121,7 +121,7 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
         reg_matrix[:, SE_PROD_COEF] = np.multiply(harm_ses[:, p], harm_ses[:, p]) # SE product
 
         # Determine weight factor for this population
-        pop_weights[p] = np.where(ldscores[:, p, p] > 0.0, np.reciprocal(ldscores[:, p, p]), 0.0)
+        pop_weights[p] = np.where(ldscores[:, p, p] > 1.0, np.reciprocal(ldscores[:, p, p]), 1.0)
 
         # Run the regression
         result_coefs[:, p, p] = run_regression(
