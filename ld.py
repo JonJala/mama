@@ -41,15 +41,13 @@ def get_population_indices(df1: pd.DataFrame, df2: pd.DataFrame = None):
 def calculate_lower_extents(values, window_size):
     M = len(values)
     lower_extent = np.arange(M, 0, -1, dtype=int)
-
     current_start = 0
     for current_stop in range(M):
         while values[current_stop] - values[current_start] > window_size:
             lower_extent[current_start] = current_stop - current_start
             current_start += 1
- 
-    return lower_extent
 
+    return lower_extent
 
 
 def qc_bim_df(bim_df: pd.DataFrame, drop: bool=True):

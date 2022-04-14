@@ -114,7 +114,7 @@ class PopInfo:
 
 
         # Calculate R matrix
-        r_band_mat = calculate_R_without_nan(G, self.max_lower_extent, self.lower_extents)
+        r_band_mat = calculate_R_without_nan(G, self.lower_extents)
 
 
         # Double-check for 0 entries in the R diagonal
