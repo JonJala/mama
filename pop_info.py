@@ -159,7 +159,7 @@ class PopInfo:
         if self.id == other.id:
             r = self.get_banded_R() if self_mat is None else self_mat
             logging.info("Calculating LD scores for population %s", self.id)
-            ldscores = pd.Series(calculate_ld_scores((r,), self.N),
+            ldscores = pd.Series(calculate_ld_scores((r,), self.N, self.lower_extents),
                                  index=self.bim_df[BIM_RSID_COL],
                                  name="%s_%s" % (self.id, self.id))
         else:

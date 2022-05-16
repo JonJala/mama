@@ -144,7 +144,7 @@ def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
 
 # TODO(jonbjala) N is really only used for single ancestry
 # Assumes matrices are filtered to common SNPs before being passed in
-def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0):
+def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0, lower_extents: np.array = None):
 
     # TODO(jonbjala) Include more input checks
     one_anc = len(banded_r) == 1
@@ -159,16 +159,16 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0):
         pass  # TODO(jonbjala) Throw error
 
     M = M_1
-    min_extent = min(extent_1, extent_2)
+    joint_extent = min(extent_1, extent_2)
     
     # Start with product of R matrices, divided through by the R diagonal (which is a row here)
     logging.debug("Calculating correlation product / squared correlation...")
-    r_prod = np.multiply(r_1[0:min_extent], r_2[0:min_extent])
+    r_prod = np.multiply(r_1[0:joint_extent], r_2[0:joint_extent])
     final_divisor = r_prod[0].copy()
     
     # Sum up the R-product entries as a start to the ld_scores (needs correction if single ancestry)
     ld_scores = np.sum(r_prod, axis=0)
-    for offset in range(1, min_extent):
+    for offset in range(1, joint_extent):
         ld_scores[offset:M] += r_prod[offset, 0:M-offset]
 
     # If single ancestry, need to correct the values
@@ -183,7 +183,7 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0):
         r_prod.fill(0.0)
         diag_element_products = r_prod
         for snp_num in range(M):
-            end_offset = min(min_extent, M - snp_num)
+            end_offset = min(lower_extents[snp_num], M - snp_num)
             diag_element_products[:end_offset, snp_num] =\
                 diag_row[snp_num] * diag_row[snp_num:snp_num+end_offset]
 
@@ -191,7 +191,7 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0):
         correction = np.sum(diag_element_products, axis=0)
 
         # Now include the terms from the top half (but not the diagonal, which was already included)
-        for offset in range(1, min_extent):
+        for offset in range(1, joint_extent):
             correction[offset:M] += diag_element_products[offset, 0:M-offset]
         ld_scores -= correction
 

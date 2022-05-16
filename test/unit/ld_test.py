@@ -291,7 +291,8 @@ class TestCalculateLowerExtents:
 class TestCalculateLdScores:
 
 
-    #########    
+    #########
+    # This is just a test that it returns the same as manually-calculated for these inputs
     def test__twopop__precanned__return_expected(self):
         r_1 = np.array([[1.0, 2.0, 3.0], [2.0, 4.0, 5.0], [3.0, 5.0, 6.0]])
         r_2 = np.array([[3.0, 1.0, 3.0], [1.0, 3.0, 1.0], [3.0, 1.0, 3.0]])
@@ -314,6 +315,8 @@ class TestCalculateLdScores:
 
 
     #########
+    # This tests against random but small enough inputs to calculate with standard functions
+    # and max (lack of) windowing to ensure that results are as expected
     @pytest.mark.parametrize("M", M_LIST)
     @pytest.mark.parametrize("r_seed", SEED_LIST)
     def test__twopop__random__maxextents__return_expected(self, M, r_seed):
@@ -336,7 +339,8 @@ class TestCalculateLdScores:
         assert np.allclose(expected_ld_scores, actual_ld_scores)
 
 
-    #########    
+    #########
+    # This is just a test that it returns the same as manually-calculated for these inputs
     def test__onepop__precanned__return_expected(self):        
         r = np.array([[1.0, 2.0, 3.0], [2.0, 4.0, 5.0], [3.0, 5.0, 6.0]])
         r2 = np.square(r)
@@ -349,12 +353,14 @@ class TestCalculateLdScores:
 
         assert np.array_equal(banded_r, np.array([[1.0, 4.0, 6.0], [2.0, 5.0, 0.0], [3.0, 0.0, 0.0]]))
         
-        actual_ld_scores = ld.calculate_ld_scores((banded_r,), N=3.0)
+        actual_ld_scores = ld.calculate_ld_scores((banded_r,), N=3.0, lower_extents=extents)
 
         assert np.array_equal(expected_ld_scores, actual_ld_scores)
 
 
     #########
+    # This checks that for large N, the correction terms are small
+    # (for differing but close large N, the returned LD scores are about the same)
     @pytest.mark.parametrize("M", M_LIST)
     @pytest.mark.parametrize("r_seed", SEED_LIST)
     def test__onepop__largeN__ldscores_close(self, M, r_seed):
@@ -367,13 +373,16 @@ class TestCalculateLdScores:
 
         N1 = 10**8
         N2 = N1 + 1
-        actual_ld_scores_N1 = ld.calculate_ld_scores((banded_r,), N1)
-        actual_ld_scores_N2 = ld.calculate_ld_scores((banded_r,), N2)
+        actual_ld_scores_N1 = ld.calculate_ld_scores((banded_r,), N1, lower_extents=extents)
+        actual_ld_scores_N2 = ld.calculate_ld_scores((banded_r,), N2, lower_extents=extents)
 
         assert np.allclose(actual_ld_scores_N1, actual_ld_scores_N2)
 
 
     #########
+    # This tests to make sure that for large N, the LD score correction
+    # is negligible (uses R of all 1's to keep things simple and allows
+    #                for a lesser check on expected LD score ~= M , as well)
     @pytest.mark.parametrize("M", M_LIST)
     def test__onepop__allones_largeN__return_expected(self, M):
         r = np.ones((M,M))
@@ -382,24 +391,46 @@ class TestCalculateLdScores:
 
         approx_expected_ld_scores = np.full(M, M)
         N = 10**8
-        actual_ld_scores = ld.calculate_ld_scores((banded_r,), N)
+        actual_ld_scores = ld.calculate_ld_scores((banded_r,), N, extents)
         
         assert np.allclose(approx_expected_ld_scores, actual_ld_scores)
 
 
     #########
+    # This tests if the correction terms are being calculated as expected
+    # (compares results with varying N)
     @pytest.mark.parametrize("M", M_LIST)
     def test__onepop__allones_smallN__return_expected(self, M):
         r = np.ones((M,M))
         extents = np.array(list(range(M, 0, -1)))        
         banded_r = convert_Rfull_to_Rabridged(r, extents)
 
-        actual_ld_scores_3 = ld.calculate_ld_scores((banded_r,), 3)
-        actual_ld_scores_4 = ld.calculate_ld_scores((banded_r,), 4)
+        actual_ld_scores_3 = ld.calculate_ld_scores((banded_r,), 3, extents)
+        actual_ld_scores_4 = ld.calculate_ld_scores((banded_r,), 4, extents)
 
         correction_terms = -2.0 * (actual_ld_scores_3 - actual_ld_scores_4)
 
         expected_ld_scores_5 = actual_ld_scores_3 + correction_terms - (3.0 * correction_terms)
-        actual_ld_scores_5 = ld.calculate_ld_scores((banded_r,), 5)
+        actual_ld_scores_5 = ld.calculate_ld_scores((banded_r,), 5, extents)
         
         assert np.allclose(expected_ld_scores_5, actual_ld_scores_5)
+
+
+    #########
+    # This test ensures that an input matrix with 0's in the off-diagonal returns
+    # different results depending on the windowing (correction should be dependent on window)
+    def test__onepop__adjust_window__return_expected(self):
+        N = 3
+        M = 10
+        r = np.identity(M)  # Between R = I and N = 3, correction terms per cell should each be 1
+        full_extents = np.array(list(range(M, 0, -1))).astype(int)
+        banded_r = convert_Rfull_to_Rabridged(r, full_extents)
+
+        base = np.minimum(np.arange(M), np.flip(np.arange(M)))
+        for i in range(0, M):
+            extents = np.minimum(i+1, full_extents)
+            max_correction = np.minimum(2 * i, M-1)
+            expected_ld_scores = np.ones(M).astype(float) - np.minimum(base + i, max_correction)
+
+            actual_ld_scores = ld.calculate_ld_scores((banded_r,), N, extents)
+            assert np.allclose(expected_ld_scores, actual_ld_scores)
