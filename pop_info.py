@@ -7,9 +7,12 @@ from ld import (calculate_R_without_nan, calculate_ld_scores, calculate_lower_ex
                 get_population_indices, read_bim_file, qc_bim_df, read_and_qc_bim_file)
 from util.bed import read_bed_file
 from util.bim import BIM_RSID_COL
+from util.df import run_filters
 from util.fam import get_sample_size_from_fam_file
 
 # TODO(jonbjala) Allow possibility of caching the R matrix?
+
+
 
 class PopInfo:
 
@@ -41,6 +44,7 @@ class PopInfo:
 
         # Create dictionary for indices needed to run calculations with this population and others
         self.cross_indices = dict()
+        self.swap_indices = dict()
 
 
         # Read in bim file
@@ -149,8 +153,11 @@ class PopInfo:
     def calc_cross_pop_indices(self, other: 'PopInfo'):
         logging.debug("Calculating cross-population indices for populations %s and %s",
                       self.id, other.id)
-        self.cross_indices[other.id], other.cross_indices[self.id] =\
+        self.cross_indices[other.id], other.cross_indices[self.id],\
+            self.swap_indices[other.id], other.swap_indices[self.id] =\
             get_population_indices(self.bim_df, other.bim_df)
+        invalid_swaps_self = [i for i in self.swap_indices[other.id] if i > self.M]
+
 
 
     def calc_ldscores(self, other: 'PopInfo', self_mat: np.ndarray=None,
@@ -163,17 +170,52 @@ class PopInfo:
                                  index=self.bim_df[BIM_RSID_COL],
                                  name="%s_%s" % (self.id, self.id))
         else:
-            # TODO(jonbjala) Check to make sure crosspop indices exist in both
-            logging.debug("Retrieving R matrices for %s and %s", self.id, other.id)
-            r1 = (self.get_banded_R()
-                if self_mat is None else self_mat)[:, self.cross_indices[other.id]]
-            r2 = (other.get_banded_R()
-                if other_mat is None else other_mat)[:, other.cross_indices[self.id]]
+            logging.debug("In calc_ldscores() for %s and %s", self.id, other.id)
+
+            joint_M = len(self.cross_indices[other.id])
+            joint_extent = min(self.max_lower_extent, other.max_lower_extent)
+
+            c1 = self.cross_indices[other.id]
+            c2 = other.cross_indices[self.id]
+
+            r1 = np.zeros((joint_extent, joint_M))
+            r2 = np.zeros((joint_extent, joint_M))
+
+            b1 = np.full(self.M, False)
+            b1[c1] = True
+
+            b2 = np.full(other.M, False)
+            b2[c2] = True
+
+            swap_mask = np.full(self.M, False)
+            swap_mask[self.swap_indices[other.id]] = True
+
+            # r1_full = (self.get_banded_R()
+            #     if self_mat is None else self_mat)[:, self.cross_indices[other.id]]
+            # r2_full = (other.get_banded_R()
+            #     if other_mat is None else other_mat)[:, other.cross_indices[self.id]]
+            r1_full = self.get_banded_R() if self_mat is None else self_mat
+            r2_full = other.get_banded_R() if other_mat is None else other_mat
+
+            joint_extent_after_processing = 0
+            for i in range(joint_M):
+                b1_window = b1[c1[i]:min(self.M, c1[i]+joint_extent)]
+                b1_sum = sum(b1_window)
+                r1[0:b1_sum, i] = r1_full[0:len(b1_window), c1[i]][b1_window]
+
+                b2_window = b2[c2[i]:min(other.M, c2[i]+joint_extent)]
+                b2_sum = sum(b2_window)
+                r2[0:b2_sum, i] = r2_full[0:len(b2_window), c2[i]][b2_window]
+
+                joint_extent_after_processing = max(joint_extent_after_processing, b1_sum, b2_sum)
+
 
             # Create series with RSIDs as the index
             logging.info("Calculating cross-population LD scores for populations %s and %s",
                          self.id, other.id)
-            ldscores = pd.Series(calculate_ld_scores((r1, r2)),
+            ldscores = pd.Series(calculate_ld_scores((r1[0:joint_extent_after_processing],
+                                                      r2[0:joint_extent_after_processing]),
+                                                     swaps=swap_mask[self.cross_indices[other.id]]),
                                  index=self.bim_df[BIM_RSID_COL].iloc[self.cross_indices[other.id]],
                                  name="%s_%s" % (self.id, other.id)) # TODO(jonbjala) The formatted string should be a constant somewhere
         return ldscores

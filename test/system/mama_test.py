@@ -61,7 +61,7 @@ def valid_basic_pargs(temp_test_dir):
     ss_files = {(anc, phen) : os.path.join(tmp_dir_path,
                                            '%s_%s_ss.txt' % (anc.lower(), phen.lower()))
                 for anc in ancestries for phen in phenotypes}
-    ss_cols = mama.MAMA_REQ_STD_COLS
+    ss_cols = list(mama.MAMA_REQ_STD_COLS)
     ss_df = pd.DataFrame(columns=ss_cols)
     for ss_file in ss_files.values():
         ss_df.to_csv(ss_file, sep="\t", index=False)

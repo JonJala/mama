@@ -182,6 +182,7 @@ def ss_input_tuple(s_input: str) -> Tuple[str, str, str]:
                  2) ancestry
                  3) phenotype
     """
+
     try:
         ss_file, ancestry, phenotype = map(lambda x: x.strip(), s_input.split(INPUT_TRIPLE_SEP))
     except Exception as exc:

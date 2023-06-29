@@ -14,6 +14,7 @@ import time
 from util.bim import (read_bim_file, BIM_COLUMNS, BIM_CHR_COL, BIM_RSID_COL, BIM_CM_COL,
                       BIM_BP_COL, BIM_A1_COL, BIM_A2_COL, BIM_SEPARATOR)
 from util.df import run_filters
+from util.sumstats import COMPLEMENT
 
 
 # BIM QC filters
@@ -26,15 +27,43 @@ BIM_FILTERS = {DUP_RSID_FILTER_NAME : lambda df : df.duplicated(subset=[BIM_RSID
                NULL_VAL_FILTER_NAME : lambda df : df.isnull().any(axis=1)}
 
 
+MERGE_BIM_SUFFIXES = ['_1', '_2']
+mbs = MERGE_BIM_SUFFIXES
+
+def merged_matched_alleles(merged_df: pd.DataFrame):
+    return ((merged_df[f"{BIM_A1_COL}{mbs[0]}"] == merged_df[f"{BIM_A1_COL}{mbs[1]}"]) &
+            (merged_df[f"{BIM_A2_COL}{mbs[0]}"] == merged_df[f"{BIM_A2_COL}{mbs[1]}"])) |\
+           ((merged_df[f"{BIM_A1_COL}{mbs[0]}"] == merged_df[f"{BIM_A1_COL}{mbs[1]}"].replace(COMPLEMENT)) &
+            (merged_df[f"{BIM_A2_COL}{mbs[0]}"] == merged_df[f"{BIM_A2_COL}{mbs[1]}"].replace(COMPLEMENT)))
+def merged_swapped_alleles(merged_df: pd.DataFrame):
+    return ((merged_df[f"{BIM_A1_COL}{mbs[0]}"] == merged_df[f"{BIM_A2_COL}{mbs[1]}"]) &
+            (merged_df[f"{BIM_A2_COL}{mbs[0]}"] == merged_df[f"{BIM_A1_COL}{mbs[1]}"])) |\
+           ((merged_df[f"{BIM_A1_COL}{mbs[0]}"] == merged_df[f"{BIM_A2_COL}{mbs[1]}"].replace(COMPLEMENT)) &
+            (merged_df[f"{BIM_A2_COL}{mbs[0]}"] == merged_df[f"{BIM_A1_COL}{mbs[1]}"].replace(COMPLEMENT)))
+MERGED_MATCHED_FILTER_NAME = "merged_matched_alleles"
+MERGED_SWAPPED_FILTER_NAME = "merged_swapped_alleles"
+MERGED_BIM_FILTERS = {MERGED_MATCHED_FILTER_NAME : merged_matched_alleles,
+                      MERGED_SWAPPED_FILTER_NAME : merged_swapped_alleles}
+
 # TODO(jonbjala) Set some function attributes and/or use constants
 def get_population_indices(df1: pd.DataFrame, df2: pd.DataFrame = None):
 
     if df2 is None:
         return df1['index'].to_list()
 
-    merged_df = df1.merge(df2, how='inner', on=[BIM_RSID_COL], suffixes=['_1', '_2'], sort=True)
+    merged_df = df1.merge(df2, how='inner', on=[BIM_RSID_COL],
+                          suffixes=MERGE_BIM_SUFFIXES, sort=True)
+
+    # TODO(jonbjala) Perhaps drop SNPs where BP_1 != BP_2?  At least ensure that BP_1 and BP_2 both increase together?
+    merged_df.sort_values(by=f"{BIM_BP_COL}{mbs[0]}", inplace=True)
+
+
+    cumulative_results, res_dict = run_filters(merged_df, MERGED_BIM_FILTERS)
     # TODO(jonbjala) Run checks / filters to make sure RSIDs and/or alleles match?
-    return merged_df["index_1"].to_list(), merged_df["index_2"].to_list()
+    return (merged_df[f"index{mbs[0]}"].loc[cumulative_results].to_list(),
+            merged_df[f"index{mbs[1]}"].loc[cumulative_results].to_list(),
+            merged_df[f"index{mbs[0]}"].loc[res_dict[MERGED_SWAPPED_FILTER_NAME]].to_list(),
+            merged_df[f"index{mbs[1]}"].loc[res_dict[MERGED_SWAPPED_FILTER_NAME]].to_list())
 
 
 # TODO(jonbjala) Add checks for valid inputs?
@@ -111,7 +140,9 @@ def calculate_Nrecip_and_R_with_nan(G, max_lower_extent, lower_extents):
 
 def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
     M, N = G.shape
+    one_over_n = np.reciprocal(float(N), dtype=np.float32)
     max_lower_extent = max(lower_extents)
+
     logging.info("Calculating R")
     scratchpad = np.zeros((max_lower_extent + step_size, step_size), dtype=np.float32)
 
@@ -121,7 +152,7 @@ def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
         logging.info("Insufficient memory for R matrix, using memmap.  Expect slower performance.")
         banded_R = np.memmap(f"{mmap_prefix}rband_mmap.dat", dtype=np.float32,
                              mode="w+", shape=(max_lower_extent, M))
-    
+
     for left_snp in range(0, M, step_size):
         next_left_snp = min(left_snp + step_size, M)
         block_width = next_left_snp - left_snp
@@ -129,13 +160,13 @@ def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
 
         np.matmul(G[left_snp:left_snp+rect_length, :],
                   G[left_snp:next_left_snp, :].T, out=scratchpad[0:rect_length,0:block_width])
+        np.multiply(scratchpad[0:rect_length,0:block_width], one_over_n, out=scratchpad[0:rect_length,0:block_width])
 
         for snp_num in range(left_snp, next_left_snp):
             offset = snp_num - left_snp
             banded_R[0:lower_extents[snp_num], snp_num] =\
                 scratchpad[offset:offset + lower_extents[snp_num], offset]
 
-    banded_R *= np.reciprocal(float(N), dtype=np.float32)
     if type(banded_R) == np.memmap:
         banded_R.flush()
     logging.info("Done calculating R")
@@ -144,7 +175,8 @@ def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
 
 # TODO(jonbjala) N is really only used for single ancestry
 # Assumes matrices are filtered to common SNPs before being passed in
-def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0, lower_extents: np.array = None):
+def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0,
+                        lower_extents: np.ndarray = None, swaps: np.ndarray=None):
 
     # TODO(jonbjala) Include more input checks
     one_anc = len(banded_r) == 1
@@ -160,16 +192,27 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0, lower_exten
 
     M = M_1
     joint_extent = min(extent_1, extent_2)
-    
+
     # Start with product of R matrices, divided through by the R diagonal (which is a row here)
     logging.debug("Calculating correlation product / squared correlation...")
     r_prod = np.multiply(r_1[0:joint_extent], r_2[0:joint_extent])
     final_divisor = r_prod[0].copy()
-    
+
+    # If reference allele alignment needs to be taken into account, do so
+    if swaps is not None:
+        swap_vect = np.ones(M)
+        swap_vect[swaps] = -1.0
+        r_prod *= swap_vect
+        # TODO(jonbjala) This can probably be done more efficiently (see summing to produce LD scores)
+        for snp_num in range(M):
+            offset = min(joint_extent, M - snp_num)
+            r_prod[0:offset, snp_num] *= swap_vect[snp_num:snp_num+offset]
+
     # Sum up the R-product entries as a start to the ld_scores (needs correction if single ancestry)
     ld_scores = np.sum(r_prod, axis=0)
     for offset in range(1, joint_extent):
         ld_scores[offset:M] += r_prod[offset, 0:M-offset]
+
 
     # If single ancestry, need to correct the values
     if one_anc:
@@ -205,5 +248,6 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0, lower_exten
     logging.debug("Dividing through by product diagonal")
 
     ld_scores /= final_divisor
+
     logging.debug("Complete")
     return ld_scores

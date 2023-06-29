@@ -19,6 +19,7 @@ from util.df import (Filter, FilterMap, rename_dataframe_cols, run_filters,
 # Standard column names
 SNP_COL = 'SNP'
 BP_COL = 'BP'
+CM_COL = 'CM'
 CHR_COL = 'CHR'
 BETA_COL = 'BETA'
 FREQ_COL = 'FREQ'
