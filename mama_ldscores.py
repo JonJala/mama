@@ -227,7 +227,7 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
 
     internal_values[GENDATA_PATHS] = dict(pargs.gendata)
     internal_values[POPS] = tuple(internal_values[GENDATA_PATHS].keys())
-    internal_values[NUM_POPS] = len(internal_values[POPS])  # TODO(jonbjala)  Do we need num pops?
+    internal_values[NUM_POPS] = len(internal_values[POPS])
 
     internal_values[STANDARDIZE] = pargs.use_standardized_units
 
@@ -243,7 +243,6 @@ def validate_inputs(pargs: argp.Namespace, user_args: Dict[str, Any]):
 
     internal_values[OUT_PREFIX] = pargs.out
 
-    # TODO(jonbjala) Include any needed validation that isn't covered by argparse
 
     return internal_values
 

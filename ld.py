@@ -45,7 +45,7 @@ MERGED_SWAPPED_FILTER_NAME = "merged_swapped_alleles"
 MERGED_BIM_FILTERS = {MERGED_MATCHED_FILTER_NAME : merged_matched_alleles,
                       MERGED_SWAPPED_FILTER_NAME : merged_swapped_alleles}
 
-# TODO(jonbjala) Set some function attributes and/or use constants
+
 def get_population_indices(df1: pd.DataFrame, df2: pd.DataFrame = None):
 
     if df2 is None:
@@ -59,14 +59,13 @@ def get_population_indices(df1: pd.DataFrame, df2: pd.DataFrame = None):
 
 
     cumulative_results, res_dict = run_filters(merged_df, MERGED_BIM_FILTERS)
-    # TODO(jonbjala) Run checks / filters to make sure RSIDs and/or alleles match?
+
     return (merged_df[f"index{mbs[0]}"].loc[cumulative_results].to_list(),
             merged_df[f"index{mbs[1]}"].loc[cumulative_results].to_list(),
             merged_df[f"index{mbs[0]}"].loc[res_dict[MERGED_SWAPPED_FILTER_NAME]].to_list(),
             merged_df[f"index{mbs[1]}"].loc[res_dict[MERGED_SWAPPED_FILTER_NAME]].to_list())
 
 
-# TODO(jonbjala) Add checks for valid inputs?
 def calculate_lower_extents(values, window_size):
     M = len(values)
     lower_extent = np.arange(M, 0, -1, dtype=int)
@@ -105,7 +104,6 @@ def read_and_qc_bim_file(bim_filename: str):
     # Read in the file from disk
     bim_df = read_bim_file(bim_filename)
     orig_M = len(bim_df)
-    # TODO(jonbjala) Log information about raw df?
 
     # QC the bim dataframe
     return orig_M, qc_bim_df(bim_df)[0]
@@ -173,22 +171,19 @@ def calculate_R_without_nan(G, lower_extents, step_size=100, mmap_prefix='./'):
     return banded_R
 
 
-# TODO(jonbjala) N is really only used for single ancestry
 # Assumes matrices are filtered to common SNPs before being passed in
 def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0,
                         lower_extents: np.ndarray = None, swaps: np.ndarray=None):
 
-    # TODO(jonbjala) Include more input checks
-    one_anc = len(banded_r) == 1
-
     # Input parameter checking plus creating some aliases for readability
+    one_anc = len(banded_r) == 1
     r_1 = banded_r[0]
     r_2 = r_1 if one_anc else banded_r[1]
 
     extent_1, M_1 = r_1.shape
     extent_2, M_2 = r_2.shape
     if (M_1 != M_2):
-        pass  # TODO(jonbjala) Throw error
+        raise RuntimeError(f"M of population 1 ({M_1}) != M of population 2 ({M_2})")
 
     M = M_1
     joint_extent = min(extent_1, extent_2)
@@ -203,7 +198,7 @@ def calculate_ld_scores(banded_r: Tuple[np.ndarray], N: float = 3.0,
         swap_vect = np.ones(M)
         swap_vect[swaps] = -1.0
         r_prod *= swap_vect
-        # TODO(jonbjala) This can probably be done more efficiently (see summing to produce LD scores)
+
         for snp_num in range(M):
             offset = min(joint_extent, M - snp_num)
             r_prod[0:offset, snp_num] *= swap_vect[snp_num:snp_num+offset]
