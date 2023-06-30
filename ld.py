@@ -18,7 +18,7 @@ from util.sumstats import COMPLEMENT
 
 
 # BIM QC filters
-# TODO(jonbjala) Include filter for palindromic SNPs?  A1 == A2? Any other filters?
+# TODO(jonbjala) Include filter for palindromic SNPs?  A1 == A2? BPs in agreement?  Any other filters?
 DUP_RSID_FILTER_NAME = "dup_rsids"
 DUP_BP_FILTER_NAME = "dup_bp"
 NULL_VAL_FILTER_NAME = "null_values"
@@ -54,9 +54,8 @@ def get_population_indices(df1: pd.DataFrame, df2: pd.DataFrame = None):
     merged_df = df1.merge(df2, how='inner', on=[BIM_RSID_COL],
                           suffixes=MERGE_BIM_SUFFIXES, sort=True)
 
-    # TODO(jonbjala) Perhaps drop SNPs where BP_1 != BP_2?  At least ensure that BP_1 and BP_2 both increase together?
+    # This makes the assumption that BPs agree (well enough) between populations
     merged_df.sort_values(by=f"{BIM_BP_COL}{mbs[0]}", inplace=True)
-
 
     cumulative_results, res_dict = run_filters(merged_df, MERGED_BIM_FILTERS)
 
@@ -84,22 +83,20 @@ def qc_bim_df(bim_df: pd.DataFrame, drop: bool=True):
     if drop:
         bim_df.drop(bim_df.index[cumulative_drops], inplace=True)
         for filt_name, drop_indices in drop_dict.items():
-            print("\tDropped %s SNPs using %s filter: %s" %
-                (np.count_nonzero(drop_indices), filt_name, bim_df[BIM_RSID_COL][drop_indices].to_list()))
-
-        # TODO(jonbjala) Log information about df filtering / QC?
+            logging.info(f"\tDropped {np.count_nonzero(drop_indices)} SNPs "
+                         f"using {filt_name} filter: "
+                         f"{bim_df[BIM_RSID_COL][drop_indices].to_list()}")
 
         # Make the index a separate column to allow for filtering at the .bed processing step
         bim_df.reset_index(inplace=True)
 
-    # TODO(jonbjala) Need for something like bim_df.sort_values(by=['bp'])?
+
     return bim_df, cumulative_drops, drop_dict
 
 
 def read_and_qc_bim_file(bim_filename: str):
 
-    # TODO(jonbjala) Replace with logging
-    print("Processing bim file: [%s]" % bim_filename)
+    logging.info(f"Processing bim file: [{bim_filename}]")
 
     # Read in the file from disk
     bim_df = read_bim_file(bim_filename)

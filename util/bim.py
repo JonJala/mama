@@ -24,6 +24,9 @@ BIM_COLUMNS = tuple(BIM_COL_TYPES.keys()) #(BIM_CHR_COL, BIM_RSID_COL, BIM_CM_CO
 # BIM separator
 BIM_SEPARATOR = "\t"
 
+# BIM file suffix
+BIM_SUFFIX = ".bim"
+
 # ================================================
 
 def read_bim_file(bim_filename: str):

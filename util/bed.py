@@ -26,6 +26,9 @@ _BED_FILE_PREFIX_SNP_MAJOR_MAGIC_BYTEARRAY = bytearray.fromhex(_BED_FILE_PREFIX_
 # The number of bits used for each sample in a .bed file
 _BED_BITS_PER_SAMPLE = 2
 
+# BED file suffix
+BED_SUFFIX = ".bed"
+
 # ================================================
 
 

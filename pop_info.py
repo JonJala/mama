@@ -10,9 +10,6 @@ from util.bim import BIM_RSID_COL
 from util.df import run_filters
 from util.fam import get_sample_size_from_fam_file
 
-# TODO(jonbjala) Allow possibility of caching the R matrix?
-
-
 
 class PopInfo:
 
@@ -22,8 +19,8 @@ class PopInfo:
     # Display up to this many SNPs when debug logging
     MAX_DISPLAY_COUNT = 10
 
-    def __init__(self, pop_id: str, bedbimfam_prefix: str, dist_col: str, win_size, # TODO(jonbjala) How to handle general numeric typing?
-                 standardize: bool, r_band_filename: str = ""): # TODO(jonbjala) Handle r filename and caching differently, maybe with kwargs?
+    def __init__(self, pop_id: str, bedbimfam_prefix: str, dist_col: str, win_size,
+                 standardize: bool, r_band_filename: str = ""):
 
         # Save off the population ID
         self.id = pop_id
@@ -190,10 +187,6 @@ class PopInfo:
             swap_mask = np.full(self.M, False)
             swap_mask[self.swap_indices[other.id]] = True
 
-            # r1_full = (self.get_banded_R()
-            #     if self_mat is None else self_mat)[:, self.cross_indices[other.id]]
-            # r2_full = (other.get_banded_R()
-            #     if other_mat is None else other_mat)[:, other.cross_indices[self.id]]
             r1_full = self.get_banded_R() if self_mat is None else self_mat
             r2_full = other.get_banded_R() if other_mat is None else other_mat
 
@@ -217,5 +210,5 @@ class PopInfo:
                                                       r2[0:joint_extent_after_processing]),
                                                      swaps=swap_mask[self.cross_indices[other.id]]),
                                  index=self.bim_df[BIM_RSID_COL].iloc[self.cross_indices[other.id]],
-                                 name="%s_%s" % (self.id, other.id)) # TODO(jonbjala) The formatted string should be a constant somewhere
+                                 name=f"{self.id}_{other.id}")
         return ldscores

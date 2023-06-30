@@ -21,7 +21,9 @@ import pandas as pd
 from mama import (get_user_inputs, numpy_err_handler, output_prefix, ParserFunc, setup_func,
                   set_up_logger, to_arg, to_flag)
 from pop_info import PopInfo
-from util.bim import BIM_RSID_COL, BIM_CM_COL, BIM_BP_COL, BIM_COL_TYPES
+from util.bed import BED_SUFFIX
+from util.bim import BIM_BP_COL, BIM_CM_COL, BIM_COL_TYPES, BIM_RSID_COL, BIM_SUFFIX
+from util.fam import FAM_SUFFIX
 from util.sumstats import SNP_COL
 
 # Software version
@@ -51,15 +53,19 @@ HEADER = f"""
 """
 
 # The default short file prefix to use for output and logs
-# TODO(jonbjala) Factor this out into util (along with copy in mama.py)
 DEFAULT_SHORT_PREFIX = "mama_ldscore"
 
 # Default prefix to use for output when not specified
-# TODO(jonbjala) Factor this out into util (along with copy in mama.py)
 DEFAULT_FULL_OUT_PREFIX = os.path.join(os.getcwd(), DEFAULT_SHORT_PREFIX)
 
 # Default base pair windowing distance
 DEFAULT_BP_THRESHOLD = BIM_COL_TYPES[BIM_BP_COL](10**6)
+
+# Default output file separator
+DEFAULT_OUT_SEP = "\t"
+
+# Default output file NaN
+DEFAULT_OUT_NAN = "NaN"
 
 # Internal dictionary names
 POPS = 'pop_tuple'
@@ -81,12 +87,10 @@ def non_negative(numeric_type):
     return check_non_negative
 
 
-# TODO(jonbjala) Can maybe make use of input_file?
 def bedbimfam_prefix(prefix: str):
     prefix = prefix.strip()
 
-    # TODO(jonbjala) These suffixes should maybe be in the bed.py, bim.py, and fam.py util files?
-    for suffix in ('.bed', '.bim', '.fam'):
+    for suffix in (BED_SUFFIX, BIM_SUFFIX, FAM_SUFFIX):
         if not os.path.exists(prefix + suffix):
                 raise argp.ArgumentTypeError("The input file [%s%s] does not exist." %
                                              (prefix, suffix))
@@ -115,8 +119,6 @@ def gendata_pair(s_input: str) -> Tuple[str, str]:
 
 
 #################################
-# TODO(jonbjala) Make use of "dest" parameter so that the args namespace attributes can easily
-# be referred to by constants?
 def get_ldscore_parser(progname: str) -> argp.ArgumentParser:
     """
     Return a parser configured for this command line utility
@@ -150,7 +152,6 @@ def get_ldscore_parser(progname: str) -> argp.ArgumentParser:
                               "set, [current working directory]/%s = \"%s\" will be used.  "
                               "Note: The containing directory specified must already exist." %
                               (DEFAULT_SHORT_PREFIX, DEFAULT_FULL_OUT_PREFIX))
-    # TODO(jonbjala) Allow for output of R matrices and other intermediate info?
 
     # General Options
     gen_opt = parser.add_argument_group(title="General Options")
@@ -187,20 +188,6 @@ def get_ldscore_parser(progname: str) -> argp.ArgumentParser:
                             help="Specifies that the windowing around a given SNP is in number of "
                                  "centimorgans (inclusive).  Value must be non-negative.  "
                                  "This is mutually exclusive with other --window-* options")
-
-
-    # Summary Statistics Filtering Options
-    snp_filt_opt = parser.add_argument_group(title="SNP Filtering Options",
-                                             description="Options for filtering/processing "
-                                                         "summary stats")
-    # TODO(jonbjala) Allow for SNP filtering options
-    # snp_filt_opt.add_argument("--freq-bounds", nargs=2, metavar=("MIN", "MAX"), type=float,
-    #                           help="This option adjusts the filtering of summary statistics.  "
-    #                               "Specify minimum frequency first, then maximum.  "
-    #                               "Defaults to minimum of %s and maximum of %s." %
-    #                                (DEFAULT_MAF_MIN, DEFAULT_MAF_MAX))
-
-
 
     return parser
 
@@ -276,7 +263,6 @@ def main_func(argv: List[str]):
         iargs = validate_inputs(parsed_args, user_args)
 
         # Read in population info
-        # TODO(jonbjala) Need to either use temp dir or allow for user specified dir for R matrix files
         logging.info("\nPerforming per-population calculations (filtering and correlations)...")
         popinfo = {p : PopInfo(pop_id=p, bedbimfam_prefix=iargs[GENDATA_PATHS][p],
                                dist_col=iargs[WINDOW_COL], win_size=iargs[WINDOW_THRESHOLD],
@@ -312,12 +298,12 @@ def main_func(argv: List[str]):
         result_df = pd.concat(ldscores_list, axis=1, join="outer")
 
         # Save scores to disk
-        # TODO(jonbjala) Maybe make this a function, at least use constants for sep and na_rep
         ld_score_filename = f"{iargs[OUT_PREFIX]}_ldscores.txt"
         logging.info("\nSaving LD scores to [%s]...", ld_score_filename)
-        result_df.to_csv(ld_score_filename, sep="\t", na_rep="NaN", index_label=SNP_COL)
+        result_df.to_csv(ld_score_filename, sep=DEFAULT_OUT_SEP, na_rep=DEFAULT_OUT_NAN,
+                         index_label=SNP_COL)
 
-        # Log any remaining information TODO(jonbjala) Timing info?
+        # Log any remaining information
         logging.info("\nExecution complete.\n")
 
     # Disable pylint error since we do actually want to capture all exceptions here
