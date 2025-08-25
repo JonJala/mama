@@ -52,18 +52,18 @@ def fixed_option_helper(num_pops: int, opt_str: Any = MAMA_REG_OPT_ALL_FREE) -> 
                                f"does not match number of populations {num_pops}")
         result = opt_str
     elif opt_str == MAMA_REG_OPT_ALL_FREE:
-        result = np.full((num_pops, num_pops), np.NaN)
+        result = np.full((num_pops, num_pops), np.nan)
     elif opt_str == MAMA_REG_OPT_ALL_ZERO:
         result = np.zeros((num_pops, num_pops))
     elif opt_str == MAMA_REG_OPT_OFFDIAG_ZERO:
         result = np.zeros((num_pops, num_pops))
         d_indices = np.diag_indices_from(result)
-        result[d_indices] = np.NaN
+        result[d_indices] = np.nan
     elif opt_str == MAMA_REG_OPT_IDENT:
         result = np.identity(num_pops)
     elif opt_str == MAMA_REG_OPT_SET_CORR:
         # MAMA_REG_OPT_SET_CORR must be handled elsewhere (a constant matrix does not suffice)
-        result = np.full((num_pops, num_pops), np.NaN)
+        result = np.full((num_pops, num_pops), np.nan)
     else:
         raise RuntimeError(f"Invalid type ({type(opt_str)}) or value ({opt_str}%s) for opt_str")
 
@@ -106,7 +106,7 @@ def run_ldscore_regressions(harm_betas: np.ndarray, harm_ses: np.ndarray, ldscor
     result_coefs = np.zeros((N_VARS, P, P))
 
     # Allocate fixed_coefs matrix (3xPxP, order will be ld scores, constant, and se product)
-    fixed_coefs = np.full((N_VARS, P, P), np.NaN)
+    fixed_coefs = np.full((N_VARS, P, P), np.nan)
     fixed_opts = (ld_fixed_opt, int_fixed_opt, se_prod_fixed_opt)  # Same order as *_COEF values
     for i, opt in enumerate(fixed_opts):
         fixed_coefs[i] = fixed_option_helper(P, opt)
