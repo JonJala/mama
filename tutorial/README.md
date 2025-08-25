@@ -10,53 +10,15 @@ to SNPs in the intersection of the GWAS's and reference panel. When working outs
 
 Prior to running the meta-analysis, we must construct a within- and cross-ancestry LD score reference panel. This script works similarly to Bulik-Sullivan et al. (2015)  ([paper](https://www.nature.com/articles/ng.3211), [github](https://github.com/bulik/ldsc)). However, we require some additional preprocessing to calculate cross-ancestry LD, a notion developed in this paper.
 
-In particular, to run `mama_ldscores.py` you must first append all your genotype data together across ancestries (details below). However, two additional definition files must be passed to the script, as described below, so it is clear which people and which SNPs belong to which ancestry (or ancestries). These definition files should be constructed before you append your genotype data together.
+In particular, to run `mama_ldscores.py` you need to point the script towards bed/bim/fam files for each ancestry using the --gendata flag.  Note: It is assumed that the files are single-chromosome.
 
-A full walkthrough of this process is documented with data and scripts in `./LDSC_input/`.
+### `--window-*`
 
-### `--ances-path`
-
-This file tells `mama_ldscores` which IID's in the appended genotype data correspond to which ancestries. This file consists of two headerless, tab-separated columns. The first column contains all the IID's in the merged `.fam` file, and the second column contains a string mapping each IID to an ancestry. For example, from the `iid_ances_file` we provide:
-```
-$ cat iid_ances_file
-HG00096 EUR
-HG00097 EUR
-HG00099 EUR
-HG00103 EUR
-HG00101 EUR
-HG00403 EAS
-HG00404 EAS
-HG00406 EAS
-HG00407 EAS
-```
-This file can be constructed by simply appending all of your `.fam` files together across ancestries and keeping track of which ancestry each IID came from.
-
-### `--snp-ances`
-
-Similarly to the above `--ances-path` file, this `--snp-ances` file is used to map each SNP to an ancestry. Unlike the above, however, a SNP may belong to multiple ancestries (i.e., the given SNP appears in more than one `.bim` file across the ancestries.) This file will have P+1 tab-separated columns (with a header), where P is the number of populations/ancestries being considered. The first column, `SNP` will contain rsID's for every SNP in the union of the `.bim` files. The next P columns will correspond to each ancestry an will contain a 1 if that SNP was in that ancestry's original `.bim` file, 0 otherwise. **Note**: These column names **must** match the ancestry strings used in `--ances-path`. For example,
-```
-$ head -n 4 snp_ances_file
-SNP     EAS     EUR
-rs587616822     0.0     1.0
-rs367963583     1.0     0.0
-rs62224609      1.0     1.0
-```
-This file states that the first SNP, rs587616822, appeared only in the original EUR `.bim` file, not in the EAS `.bim` file. The second SNP appeared only in the EAS `.bim` file. The third SNP appeared in both `.bim` files.
-
-This file can be constructed by taking the universe of rsID's across ancestries, then left-joining this master list to each ancestry's corresponding `.bim` file, marking which SNPs in the master list also appear in the `.bim` file. Note that each rsID can only appear once in `--snp-ances`. You should restrict your genotype
-data to non-duplicated rsID's prior to running `mama_ldscores.py`.
-
-### `--bfile-merged-path`
-
-Once the above two files have been created, you can now merge your genotype `.bed/.bim/.fam` files together across ancestries. This will be necessary as `mama_ldscores` only accepts a single genotype fileset (note: if you're storing your data at the chromosome-level, you can simply loop through each chromosome and call the script 22 times.) One will need to merge multiple Plink filesets together with [`--[b]merge`](https://www.cog-genomics.org/plink/1.9/data#merge).
-
-### `--ld-wind-*`
-
-The user is encouraged to specify a window size to calculate LD in using one (and only one) of the `--ld-wind*` flags. A window of one centimorgan is common and can be specified with `--ld-wind-cm 1`. However, not all genotype data will contain centimorgan positions (the third column of the `.bim` file will be all zeros). Specifying a centimorgan-based window will cause runtime issues and may produce incorrect results if no centimorgan data is provided. In these instances, the user can approximate a centimorgan with 1,000 kb using `--wind-ld-kb 1000`, or, if appropriate, specify a number of SNPs to use with `--ld-wind-snps`. 
+The user is encouraged to specify a window size to calculate LD in using one (and only one) of the `--window-*` flags. A window of one centimorgan is common and can be specified with `--window-cm 1`. However, not all genotype data will contain centimorgan positions (the third column of the `.bim` file will be all zeros). Specifying a centimorgan-based window will likely cause runtime issues and may produce incorrect results if no centimorgan data is provided. In these instances, the user can approximate a centimorgan with 1,000 kb using `--window-bp 1000000`. 
 
 ### Running `mama_ldscores`
 
-The script `./run_mama_ldscores.sh` provides an example of how to call `mama_ldscores.py`. Note that there are flags this script does not invoke. To see all the options, type `python3 mama_ldscores.py -h`.
+The script `./run_mama_ldscores.sh` provides an example of how to call `mama_ldscores.py`. To see all the options, type `python3 mama_ldscores.py -h`.
 
 ## Meta-Analysis
 
@@ -98,3 +60,4 @@ In the cross-ancestry case, `mama` estimates the coefficients of the following e
 
 
 See the Supplementary Note for more details. Some aspects of this specification can be modified from the command line. Commands to modify the coefficients on the LD scores are of the form `--reg-ld-XXX`. Commands to modify the coefficients on the standard errors are of the form `--reg-se2-XXX`. Commands to modify the coefficients on the intercept are of the form `--reg-int-XXX`. For example, in the paper, we set the genetic correlation between ancestries to 1 by calling `--reg-ld-set-corr 1`. Because the standard errors across SNPs will oftentimes be approximately collinear with the intercept, we recommend setting either the standard error coefficient or the intercept to 0. In the paper, we set the  intercept to zero with `--reg-int-zero`. Note that the regressions can be estimated in standardized genotype units with `--use-standardized-units` (input and output will always be in allele counts, but the meta-analysis itself can be done in standardized genotype units.)
+
